@@ -1,31 +1,69 @@
-<?xml version="1.0" encoding="us-ascii"?>
-<application xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" id="application">
+<?xml version="1.0" encoding="UTF-8"?>
+<application id="band_combination">
   <jobTemplates>
-    <jobTemplate id="template_A">
-      <streamingExecutable>/application/node_A/run.sh</streamingExecutable>
-    </jobTemplate>
-    <jobTemplate id="template_B">
-      <streamingExecutable>/application/node_B/run.sh</streamingExecutable>
+    <jobTemplate id="pre_processing">
+      <streamingExecutable>/application/pre_processing/run.sh</streamingExecutable>
+      <defaultParameters>
+         <parameter id="redBandIndex" title="RED channel band ID" abstract="Select the band (or a math combination of 2 bands) that will be assigned as red channel of RGB image." scope="runtime" maxOccurs="1">
+		<options>
+                        <option>band_1</option><option>band_2</option><option>band_3</option><option>band_4</option><option>band_5</option><option>band_6</option><option>band_7</option><option>band_8</option><option>band_9</option><option>band_10</option><option>band_11</option><option>band_12</option><option>band_13</option><option>band_14</option><option>band_15</option><option>band_16</option><option>band_17</option><option>band_18</option><option>band_19</option><option>band_20</option>
+                        <default>band_1</default>
+                </options>
+	</parameter>
+	 <parameter id="greenBandProduct" title="Product reference for GREEN" abstract="Select the product that will be used to get the green band." scope="runtime" maxOccurs="1"></parameter>
+         <parameter id="greenBandIndex" title="GREEN channel band ID" abstract="Select the band (or a math combination of 2 bands) that will be assigned as green channel of RGB image." scope="runtime" maxOccurs="1">		
+		<options>
+			<option>band_1</option><option>band_2</option><option>band_3</option><option>band_4</option><option>band_5</option><option>band_6</option><option>band_7</option><option>band_8</option><option>band_9</option><option>band_10</option><option>band_11</option><option>band_12</option><option>band_13</option><option>band_14</option><option>band_15</option><option>band_16</option><option>band_17</option><option>band_18</option><option>band_19</option><option>band_20</option>
+                        <default>band_1</default>
+                </options>
+	</parameter>
+         <parameter id="blueBandProduct" title="Product reference for BLUE" abstract="Select the product that will be used to get the blue band." scope="runtime" maxOccurs="1"></parameter>
+         <parameter id="blueBandIndex" title="BLUE channel band ID" abstract="Select the band (or a math combination of 2 bands) that will be assigned as blue channel of RGB image." scope="runtime" maxOccurs="1">
+		<options>
+                        <option>band_1</option><option>band_2</option><option>band_3</option><option>band_4</option><option>band_5</option><option>band_6</option><option>band_7</option><option>band_8</option><option>band_9</option><option>band_10</option><option>band_11</option><option>band_12</option><option>band_13</option><option>band_14</option><option>band_15</option><option>band_16</option><option>band_17</option><option>band_18</option><option>band_19</option><option>band_20</option>
+                        <default>band_1</default>
+         	</options>
+	</parameter>
+	 <parameter id="targetResProduct" title="Product reference for output resolution" abstract="Select the source product from which the pixel spacing will be get to be assigned as output resolution." scope="runtime" maxOccurs="1"></parameter>
+         <parameter id="performCropping" title="Perform data cropping" abstract="Choose if the selected data set have to be cropped according to the user defined AOI" scope="runtime" maxOccurs="1">
+                <options>
+                        <option>true</option>
+                        <option>false</option>
+                        <default>false</default>
+                </options>
+         </parameter>
+         <parameter id="SubsetBoundingBox" title="Subset Bounding Box for Cropping" abstract="Define the area of interest for the data cropping [lon_min,lat_min,lon_max,lat_max]" scope="runtime" type="BoundingBoxData" minOccurs="1" maxOccurs="1">-180.0,-90.0,180.0,90.0</parameter>
+      </defaultParameters>
       <defaultJobconf>
-        <!-- By setting this property with value 1, the node will act as 'aggregator.
-             That is only one instance of the node will run on the cluster -->
         <property id="ciop.job.max.tasks">1</property>
+        <property id="mapred.task.timeout">9900000000</property>
+      </defaultJobconf>
+    </jobTemplate>
+    <jobTemplate id="rgb_combination">
+      <streamingExecutable>/application/rgb_combination/run.sh</streamingExecutable>
+      <defaultParameters>
+      </defaultParameters>
+      <defaultJobconf>
+        <property id="ciop.job.max.tasks">1</property>
+        <property id="mapred.task.timeout">9900000000</property>
       </defaultJobconf>
     </jobTemplate>
   </jobTemplates>
-    <workflow id="workflow" title="Simple workflow" abstract="Simple workflow based on the DCS Bash archetype">
+  <workflow id="band-combination" title="Band combination" abstract="The Band Combination on-demand processing service provides RGB band combination from user defined bands of single or multiple EO data products. All bands are in their native format (no radiometric correction applied) thus can serve only for fast screening of the data, not for further processing.">
     <workflowVersion>1.0</workflowVersion>
-    <node id="node_A">
-      <job id="template_A"/>
+    <node id="node_pre_processing">
+      <job id="pre_processing"/>
       <sources>
-        <source id="source" title="Simple string sources" abstract="List of comma-separated strings" refid="string:list" scope="runtime">input-1,input-2,input-3</source>
+	<source id="redBandProduct" title="Product reference for RED" abstract="Select the product that will be used to get the red band." scope="runtime" refid="string:list" maxOccurs="1"></source>
       </sources>
+      <parameters/>
     </node>
-    <node id="node_B">
-      <job id="template_B"/>
+    <node id="node_rgb_combination">
+      <job id="rgb_combination"/>
       <sources>
-        <source refid="wf:node">node_A</source>
+        <source refid="wf:node">node_pre_processing</source>
       </sources>
+      <parameters/>
     </node>
   </workflow>
 </application>
