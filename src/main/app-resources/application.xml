@@ -32,7 +32,7 @@
                         <default>false</default>
                 </options>
          </parameter>
-         <parameter id="SubsetBoundingBox" title="Subset Bounding Box for Cropping" abstract="Define the area of interest for the data cropping [lon_min,lat_min,lon_max,lat_max]" scope="runtime" type="BoundingBoxData" minOccurs="1" maxOccurs="1">-180.0,-90.0,180.0,90.0</parameter>
+         <parameter id="SubsetBoundingBox" title="Subset Bounding Box for Cropping" abstract="Define the area of interest for the data cropping [lon_min,lat_min,lon_max,lat_max]" scope="runtime" type="BoundingBoxData" minOccurs="0" maxOccurs="1">-180.0,-90.0,180.0,90.0</parameter>
       </defaultParameters>
       <defaultJobconf>
         <property id="ciop.job.max.tasks">1</property>
