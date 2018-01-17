@@ -23,6 +23,7 @@ ERR_GETPRODMTD=10
 ERR_PCONVERT=11
 ERR_PROPERTIES_FILE_CREATOR=12
 ERR_CONVERT=13
+ERR_AOI=14
 
 # add a trap to exit gracefully
 function cleanExit ()
@@ -45,17 +46,21 @@ function cleanExit ()
         ${ERR_PCONVERT})                msg="PCONVERT failed to process";;
         ${ERR_PROPERTIES_FILE_CREATOR}) msg="Could not create the .properties file";;
         ${ERR_CONVERT})           	msg="Error generating output product";;
+        ${ERR_AOI})                     msg="Error: no intersection between input products";;
         *)                              msg="Unknown error";;
     esac
 
    [ ${retval} -ne 0 ] && ciop-log "ERROR" "Error ${retval} - ${msg}, processing aborted" || ciop-log "INFO" "${msg}"
-   if [ $DEBUG -ne 1 ] ; then
+   # remove temp data if not debug mode and if not ${ERR_AOI} (this last condition is because if temp data is 
+   # removed this error is no longer catched in the 4 task execution attempts)
+   if [ $DEBUG -ne 1 ] && [ ${retval} -ne ${ERR_AOI} ]; then
         [ ${retval} -ne 0 ] && hadoop dfs -rmr $(dirname "${inputfiles[0]}")
    fi
    exit ${retval}
 
 }
 
+trap cleanExit EXIT
 
 function create_snap_request_stack(){
 # function call: create_snap_request_stack "${inputfilesDIM_list}" "${outProdTIF}" "${numProd}"
@@ -305,9 +310,20 @@ function main ()
     # report activity in the log
     ciop-log "INFO" "Invoking SNAP-gpt on the generated request file for products stacking"
     # invoke the ESA SNAP toolbox
-    gpt $SNAP_REQUEST -c "${CACHE_SIZE}" &> /dev/null
-    # check the exit code
-    [ $? -eq 0 ] || return $ERR_SNAP
+    gpt $SNAP_REQUEST -c "${CACHE_SIZE}" 2> log.txt
+    returncode=$?
+    test_txt=$(cat log.txt | grep "invalid region")
+    rm log.txt
+    # catch proper error if any
+    if [ $returncode -ne 0 ] ; then
+        if [[ "${test_txt}" != "" ]]; then
+            # error due to void intersection between input data 
+            return ${ERR_AOI}
+        else
+            # generic snap-gpt execution error
+            return ${ERR_SNAP}
+        fi
+    fi
  
     ## RGB FULL RESOLUTION CREATION
     # report activity in the log
@@ -316,19 +332,16 @@ function main ()
     outputRGB_Prop=${OUTPUTDIR}/RGB.properties
     # create full resolution tif image with Red=B1 Green=B2 Blue=B3 due to given order within stacking operation
     ciop-log "DEBUG" "Running pconvert -b ${stackOrderRGB} -f tif -o ${OUTPUTDIR} ${outProdTIF} "
-    pconvert -b ${stackOrderRGB} -f tif -o ${OUTPUTDIR} ${outProdTIF} #&> /dev/null
+    pconvert -b ${stackOrderRGB} -f tif -o ${OUTPUTDIR} ${outProdTIF} &> /dev/null
     # check the exit code
     [ $? -eq 0 ] || return $ERR_PCONVERT
     rm ${outProdTIF}
     pconvertOutTIF=${OUTPUTDIR}/${basenameStack}
-    gdal_translate -ot Byte -of GTiff -b 1 -b 2 -b 3 -scale -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" ${pconvertOutTIF} temp-outputfile.tif
-    returnCode=$?
-    [ $returnCode -eq 0 ] || return ${ERR_CONVERT}
-    gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" temp-outputfile.tif ${outputRGB}
+    gdalwarp -ot Byte -t_srs EPSG:4326 -srcalpha -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" ${pconvertOutTIF} ${outputRGB}
     returnCode=$?
     [ $returnCode -eq 0 ] || return ${ERR_CONVERT}
     #Remove temporary file
-    rm -f temp-outputfile.tif ${pconvertOutTIF}
+    rm -f ${pconvertOutTIF}
     #Add overviews
     gdaladdo -r average ${outputRGB} 2 4 8 16
     returnCode=$?
