@@ -31,6 +31,7 @@ ERR_WRONGPOLARIZATION=18
 ERR_BAND_ID_GET=19
 ERR_BAND_SELECT=20
 ERR_BAND_ID=21
+ERR_AOI=22
 
 # add a trap to exit gracefully
 function cleanExit ()
@@ -61,6 +62,7 @@ function cleanExit ()
         ${ERR_BAND_ID_GET})	  msg="Error while retrieving band identifier from product";;
 	${ERR_BAND_SELECT})       msg="Error while extracting band from pre-processed product";;
         ${ERR_BAND_ID})       	  msg="Band index not valid for input product (it exceeds the number of contained bands)";;
+        ${ERR_AOI})               msg="Error: input SubsetBoundingBox has no intersection with input data";;
         *)                        msg="Unknown error";;
     esac
 
@@ -176,14 +178,16 @@ function mission_prod_retrieval(){
         [ "${prod_basename_substr_3}" = "S2A" ] && mission="Sentinel-2"
         [ "${prod_basename_substr_3}" = "S2B" ] && mission="Sentinel-2"
         #[ "${prod_basename_substr_3}" = "K5_" ] && mission="Kompsat-5"
-        #[ "${prod_basename_substr_3}" = "K3_" ] && mission="Kompsat-3"
+        [ "${prod_basename_substr_3}" = "K3_" ] && mission="Kompsat-3"
         [ "${prod_basename_substr_3}" = "LC8" ] && mission="Landsat-8"
         [ "${prod_basename_substr_4}" = "LS08" ] && mission="Landsat-8"
         #[ "${prod_basename_substr_4}" = "MSC_" ] && mission="Kompsat-2"
         #[ "${prod_basename_substr_4}" = "FCGC" ] && mission="Pleiades"
-        #[ "${prod_basename_substr_5}" = "U2007" ] && mission="UK-DMC2"
-        #[ "${prod_basename_substr_5}" = "ORTHO" ] && mission="UK-DMC2"
-        #[ "${prod_basename}" = "Resurs-P" ] && mission="Resurs-P"
+        [ "${prod_basename_substr_5}" = "U2007" ] && mission="UK-DMC2"
+        [ "${prod_basename_substr_5}" = "ORTHO" ] && mission="UK-DMC2"
+        ukdmc2_test=$(echo "${prod_basename}" | grep "UK-DMC-2")
+        [ "${ukdmc2_test}" = "" ] || mission="UK-DMC-2"
+	#[ "${prod_basename}" = "Resurs-P" ] && mission="Resurs-P"
         #[ "${prod_basename}" = "Kanopus-V" ] && mission="Kanopus-V"
         #alos2_test=$(echo "${prod_basename}" | grep "ALOS2")
         #[ "${alos2_test}" = "" ] || mission="Alos-2"
@@ -325,11 +329,11 @@ case "$mission" in
             ;;
 
         "Kompsat-2")
-	    bandListCsv="R,G,B,N"
+	    bandListCsv="${prodname}_R,${prodname}_G,${prodname}_B,${prodname}_N"
             ;;
 
         "Kompsat-3")
-	    bandListCsv="R,G,B,N"
+	    bandListCsv="${prodname}_R,${prodname}_G,${prodname}_B,${prodname}_N"
             ;;
 
         "Landsat-8")
@@ -501,9 +505,23 @@ ciop-log "INFO" "Generated request file: ${SNAP_REQUEST}"
 ciop-log "INFO" "Invoking SNAP-gpt on the generated request file for Sentinel 1 data pre processing"
 
 # invoke the ESA SNAP toolbox
-gpt $SNAP_REQUEST -c "${CACHE_SIZE}" &> /dev/null
-# check the exit code
-[ $? -eq 0 ] || return $ERR_SNAP
+gpt $SNAP_REQUEST -c "${CACHE_SIZE}" 2> log.txt
+returncode=$?
+test_txt=$(cat log.txt | grep "No intersection")
+rm log.txt
+# catch proper error if any
+if [ $returncode -eq 0 ] ; then
+    # no error case
+    return 0
+else
+    if [[ "${test_txt}" != "" ]]; then 
+        # error due to void intersection between user AOI and data 
+        return $ERR_AOI
+    else
+        # generic snap-gpt execution error
+        return $ERR_SNAP
+    fi
+fi 
 
 }
 
@@ -776,9 +794,23 @@ ciop-log "INFO" "Generated request file: ${SNAP_REQUEST}"
 ciop-log "INFO" "Invoking SNAP-gpt on the generated request file for Sentinel 2 data pre processing"
 
 # invoke the ESA SNAP toolbox
-gpt $SNAP_REQUEST -c "${CACHE_SIZE}" &> /dev/null
-# check the exit code
-[ $? -eq 0 ] || return $ERR_SNAP
+gpt $SNAP_REQUEST -c "${CACHE_SIZE}" 2> log.txt
+returncode=$?
+test_txt=$(cat log.txt | grep "No intersection")
+rm log.txt
+# catch proper error if any
+if [ $returncode -eq 0 ] ; then
+    # no error case
+    return 0
+else
+    if [[ "${test_txt}" != "" ]]; then
+        # error due to void intersection between user AOI and data
+        return $ERR_AOI
+    else
+        # generic snap-gpt execution error
+        return $ERR_SNAP
+    fi
+fi
 
 }
 
@@ -824,9 +856,23 @@ ciop-log "INFO" "Generated request file: ${SNAP_REQUEST}"
 ciop-log "INFO" "Invoking SNAP-gpt on the generated request file for UK-DMC 2 data pre processing"
 
 # invoke the ESA SNAP toolbox
-gpt $SNAP_REQUEST -c "${CACHE_SIZE}" &> /dev/null
-# check the exit code
-[ $? -eq 0 ] || return $ERR_SNAP
+gpt $SNAP_REQUEST -c "${CACHE_SIZE}" 2> log.txt
+returncode=$?
+test_txt=$(cat log.txt | grep "No intersection")
+rm log.txt
+# catch proper error if any
+if [ $returncode -eq 0 ] ; then
+    # no error case
+    return 0
+else
+    if [[ "${test_txt}" != "" ]]; then
+        # error due to void intersection between user AOI and data
+        return $ERR_AOI
+    else
+        # generic snap-gpt execution error
+        return $ERR_SNAP
+    fi
+fi
 
 }
 
@@ -855,7 +901,7 @@ inputProdBasenameNoExt=""
 # mission dependent TIF list
 # if Landsat-8 it can be compressed in tar.bz
 if [ ${mission} = "Landsat-8" ]; then
-    #Check if downloaded product is compressed and extract it
+    #Check if downloaded product is compressed and extract it (in tar.bz is not automatically extracted, otherwise yes)
     ext="${prodname##*/}"; ext="${ext#*.}"
     ciop-log "INFO" "Product extension is: $ext"
     if [[ "$ext" == "tar.bz" ]]; then
@@ -872,17 +918,27 @@ if [ ${mission} = "Landsat-8" ]; then
         ls "${prodname}"/LC8*_B[1-7].TIF > $tifList
         ls "${prodname}"/LC8*_B9.TIF >> $tifList
         ls "${prodname}"/LC8*_B1[0,1].TIF >> $tifList
-        inputProdBasenameNoExt=$(basename ${prodname})
     else
-        ls "${prodname}"/LS08*_B[0-1][0-7,9].TIF > $tifList
+        ls "${prodname}"/LS08*_B0[1-7].TIF > $tifList
+        ls "${prodname}"/LS08*_B09.TIF >> $tifList
+        ls "${prodname}"/LS08*_B1[0,1].TIF >> $tifList
     fi
 elif [ ${mission} = "Kompsat-2" ]; then
-    ls "${prodname}"/MSC_*[R,G,B,N]_1G.tif > $tifList
+    ls "${prodname}"/MSC_*R_1G.tif > $tifList
+    ls "${prodname}"/MSC_*G_1G.tif >> $tifList
+    ls "${prodname}"/MSC_*B_1G.tif >> $tifList
+    ls "${prodname}"/MSC_*N_1G.tif >> $tifList
+    
 elif [ ${mission} = "Kompsat-3" ]; then
-    ls "${prodname}"/K3_*_L1G_[R,G,B,N]*.tif > $tifList
+    ls "${prodname}"/K3_*_L1G_R*.tif > $tifList
+    ls "${prodname}"/K3_*_L1G_G*.tif >> $tifList
+    ls "${prodname}"/K3_*_L1G_B*.tif >> $tifList
+    ls "${prodname}"/K3_*_L1G_N*.tif >> $tifList
 else
     return ${ERR_PREPROCESS}
 fi
+
+inputProdBasenameNoExt=$(basename ${prodname})
 
 for tif in $(cat "${tifList}"); do
     basenameNoExt=$(basename "$tif")
@@ -974,13 +1030,24 @@ ciop-log "INFO" "Generated request file: ${SNAP_REQUEST}"
 ciop-log "INFO" "Invoking SNAP-gpt on the generated request file for optical data pre processing"
 
 # invoke the ESA SNAP toolbox
-gpt $SNAP_REQUEST -c "${CACHE_SIZE}" &> /dev/null
-# check the exit code
-[ $? -eq 0 ] || return $ERR_SNAP
-
+gpt $SNAP_REQUEST -c "${CACHE_SIZE}" 2> log.txt
+returncode=$?
+test_txt=$(cat log.txt | grep "No intersection")
+rm log.txt
 rm -rf ${outProdRename}.d* ${tifList} ${targetBandsNamesListTXT}
-
-return 0
+# catch proper error if any
+if [ $returncode -eq 0 ] ; then
+    # no error case
+    return 0
+else
+    if [[ "${test_txt}" != "" ]]; then
+        # error due to void intersection between user AOI and data
+        return $ERR_AOI
+    else
+        # generic snap-gpt execution error
+        return $ERR_SNAP
+    fi
+fi
 
 }
 
