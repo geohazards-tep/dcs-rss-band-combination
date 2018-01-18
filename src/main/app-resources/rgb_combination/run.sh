@@ -53,9 +53,10 @@ function cleanExit ()
    [ ${retval} -ne 0 ] && ciop-log "ERROR" "Error ${retval} - ${msg}, processing aborted" || ciop-log "INFO" "${msg}"
    # remove temp data if not debug mode and if not ${ERR_AOI} (this last condition is because if temp data is 
    # removed this error is no longer catched in the 4 task execution attempts)
-   if [ $DEBUG -ne 1 ] && [ ${retval} -ne ${ERR_AOI} ]; then
-        [ ${retval} -ne 0 ] && hadoop dfs -rmr $(dirname "${inputfiles[0]}")
-   fi
+   # This part is not allowed in the multi-tenant cluster (direct access to HDFS)
+   #if [ $DEBUG -ne 1 ] && [ ${retval} -ne ${ERR_AOI} ]; then
+   #     [ ${retval} -ne 0 ] && hadoop dfs -rmr $(dirname "${inputfiles[0]}")
+   #fi
    exit ${retval}
 
 }
