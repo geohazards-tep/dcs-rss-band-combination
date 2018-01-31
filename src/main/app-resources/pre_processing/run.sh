@@ -586,10 +586,21 @@ snap_request_filename="${TMPDIR}/$( uuidgen ).xml"
       <formatName>SENTINEL-1</formatName>
     </parameters>
   </node>
+  <node id="Remove-GRD-Border-Noise">
+    <operator>Remove-GRD-Border-Noise</operator>
+    <sources>
+      <sourceProduct refid="Read"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <selectedPolarisations/>
+      <borderLimit>1000</borderLimit>
+      <trimThreshold>0.5</trimThreshold>
+    </parameters>
+  </node>
   <node id="Calibration">
     <operator>Calibration</operator>
     <sources>
-      <sourceProduct refid="Apply-Orbit-File"/>
+      <sourceProduct refid="Remove-GRD-Border-Noise"/>
     </sources>
     <parameters class="com.bc.ceres.binding.dom.XppDomElement">
       <sourceBands/>
@@ -633,7 +644,7 @@ ${commentMlBegin}  <node id="Multilook">
       <demResamplingMethod>BILINEAR_INTERPOLATION</demResamplingMethod>
       <imgResamplingMethod>BILINEAR_INTERPOLATION</imgResamplingMethod>
       <pixelSpacingInMeter>${pixelSpacing}</pixelSpacingInMeter>
-      <pixelSpacingInDegree>8.983152841195215E-5</pixelSpacingInDegree>
+      <!-- <pixelSpacingInDegree>8.983152841195215E-5</pixelSpacingInDegree> -->
       <mapProjection>WGS84(DD)</mapProjection>
       <nodataValueAtSea>true</nodataValueAtSea>
       <saveDEM>false</saveDEM>
@@ -1481,8 +1492,14 @@ returnCode=$?
 outBandName=${prodname}_${bandIdentifier}
 # report activity in the log
 ciop-log "INFO" "Preparing SNAP request file for band extraction from pre-processed product"
-# prepare the SNAP request
-SNAP_REQUEST=$( create_snap_request_band_math "${inputDIM}" "${bandIdentifier}" "${outBandName}" "${outputProd}")
+# if sentinel 1 the selected band should be also clipped: dedicated prcessing
+if [ ${mission} = "Sentinel-1"  ] ; then
+    # prepare the SNAP request
+    SNAP_REQUEST=$( create_snap_request_band_math_s1 "${inputDIM}" "${bandIdentifier}" "${outBandName}" "${outputProd}")
+else
+    # prepare the SNAP request
+    SNAP_REQUEST=$( create_snap_request_band_math "${inputDIM}" "${bandIdentifier}" "${outBandName}" "${outputProd}")
+fi
 [ $? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
 [ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST}
 # report activity in the log
@@ -1560,6 +1577,105 @@ snap_request_filename="${TMPDIR}/$( uuidgen ).xml"
     <operator>Write</operator>
     <sources>
        <sourceProduct refid="BandMaths"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <file>${outputProd}.dim</file>
+      <formatName>BEAM-DIMAP</formatName>
+    </parameters>
+  </node>
+  <applicationData id="Presentation">
+    <Description/>
+    <node id="Write">
+            <displayPosition x="455.0" y="135.0"/>
+    </node>
+    <node id="BandMaths">
+      <displayPosition x="140.0" y="133.0"/>
+    </node>
+    <node id="Read">
+            <displayPosition x="37.0" y="134.0"/>
+    </node>
+  </applicationData>
+</graph>
+EOF
+
+[ $? -eq 0 ] && {
+    echo "${snap_request_filename}"
+    return 0
+} || return ${SNAP_REQUEST_ERROR}
+
+}
+
+
+function create_snap_request_band_math_s1(){
+#function call create_snap_request_band_math_s1 "${inputDIM}" "${bandIdentifier}" "${outBandName}" "${outputProd}"
+
+# get number of inputs
+inputNum=$#
+# check on number of inputs
+if [ "$inputNum" -ne "4" ] ; then
+    return ${SNAP_REQUEST_ERROR}
+fi
+
+local inputDIM=$1
+local bandIdentifier=$2
+local outBandName=$3
+local outputProd=$4
+
+#sets the output filename
+snap_request_filename="${TMPDIR}/$( uuidgen ).xml"
+
+   cat << EOF > ${snap_request_filename}
+<graph id="Graph">
+  <version>1.0</version>
+  <node id="Read">
+    <operator>Read</operator>
+    <sources/>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <file>${inputDIM}</file>
+    </parameters>
+  </node>
+  <node id="BandMaths">
+    <operator>BandMaths</operator>
+    <sources>
+      <sourceProduct refid="Read"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <targetBands>
+        <targetBand>
+          <name>bandSel</name>
+          <type>float32</type>
+          <expression>${bandIdentifier}</expression>
+          <description/>
+          <unit/>
+          <noDataValue>NaN</noDataValue>
+        </targetBand>
+      </targetBands>
+      <variables/>
+    </parameters>
+  </node>
+  <node id="BandMaths(2)">
+    <operator>BandMaths</operator>
+    <sources>
+      <sourceProduct refid="BandMaths"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <targetBands>
+        <targetBand>
+          <name>${outBandName}</name>
+          <type>float32</type>
+          <expression>if !nan(bandSel) then (if bandSel&lt;=-15 then -15 else (if bandSel&gt;=5 then 5 else bandSel)) else NaN</expression>
+          <description/>
+          <unit/>
+          <noDataValue>NaN</noDataValue>
+        </targetBand>
+      </targetBands>
+      <variables/>
+    </parameters>
+  </node>
+  <node id="Write">
+    <operator>Write</operator>
+    <sources>
+       <sourceProduct refid="BandMaths(2)"/>
     </sources>
     <parameters class="com.bc.ceres.binding.dom.XppDomElement">
       <file>${outputProd}.dim</file>
