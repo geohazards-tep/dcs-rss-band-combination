@@ -81,10 +81,12 @@ function check_product_type() {
   local productName=$( basename "$retrievedProduct")
 
   if [ ${mission} = "Sentinel-1"  ] ; then
-      #productName assumed like S1A_IW_TTT* where TTT is the product type to be extracted
-      prodTypeName=$( echo ${productName:7:3} )
+      #productName assumed like S1A_IW_TTTT_* where TTTT is the product type to be extracted
+      prodTypeName=$( echo ${productName:7:4} )
       [ -z "${prodTypeName}" ] && return ${ERR_GETPRODTYPE}
-      [ $prodTypeName != "GRD" ] && return $ERR_WRONGPRODTYPE
+      if [ $prodTypeName != "GRDH" ] && [ $prodTypeName != "GRDM" ]; then
+          return $ERR_WRONGPRODTYPE
+      fi
   fi
 
   if [ ${mission} = "Sentinel-2"  ] ; then
@@ -200,15 +202,47 @@ function mission_prod_retrieval(){
 }
 
 
+# function that gets the Sentinel-1 acquisition mode from product name
+function get_s1_acq_mode(){
+# function call get_s1_acq_mode "${prodname}"
+local prodname=$1
+# filename convention assumed like S1A_AA_* where AA is the acquisition mode to be extracted
+acqMode=$( echo ${prodname:4:2} )
+echo ${acqMode}
+return 0
+}
+
+
 # function that runs the gets the pixel size in meters depending on the mission data
 function get_pixel_spacing() {
 
-# function call get_pixel_size "${mission}"
+# function call get_pixel_size "${mission}" "${prodType}" "${prodname}"
 local mission=$1
+local prodType=$2
+local prodname=$3
 
 case "$mission" in
         "Sentinel-1")
-            echo 10
+	    acqMode=$(get_s1_acq_mode "${prodname}")
+	    if [ "${acqMode}" == "EW" ]; then
+	        if [ "${prodType}" == "GRDH" ]; then
+		    echo 25
+		elif [ "${prodType}" == "GRDM" ]; then
+		    echo 40
+		else
+		    return ${ERR_GETPIXELSPACING}	    
+		fi
+            elif [ "${acqMode}" == "IW" ]; then
+		if [ "${prodType}" == "GRDH" ]; then
+		    echo 10
+                elif [ "${prodType}" == "GRDM" ]; then
+		    echo 40
+                else
+                    return ${ERR_GETPIXELSPACING}
+                fi
+            else
+		return ${ERR_GETPIXELSPACING}
+	    fi
             ;;
 
         "Sentinel-2")
@@ -495,7 +529,7 @@ ciop-log "DEBUG" "ml_factor: ${ml_factor}"
 ciop-log "INFO" "Preparing SNAP request file for Sentinel 1 data pre processing"
 
 # prepare the SNAP request
-SNAP_REQUEST=$( create_snap_request_pre_processing_s1 "${prodname}" "${ml_factor}" "${performCropping}" "${subsettingBoxWKT}" "${outProd}")
+SNAP_REQUEST=$( create_snap_request_pre_processing_s1 "${prodname}" "${ml_factor}" "${pixelSpacing}" "${performCropping}" "${subsettingBoxWKT}" "${outProd}")
 [ $? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
 [ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST}
 # report activity in the log
@@ -528,19 +562,20 @@ fi
 
 function create_snap_request_pre_processing_s1() {
 
-# function call create_snap_request_pre_processing_s1 "${prodname}" "${ml_factor}" "${performCropping}" "${subsettingBoxWKT}"
+# function call create_snap_request_pre_processing_s1 "${prodname}" "${ml_factor}" "${pixelSpacing}" "${performCropping}" "${subsettingBoxWKT}" "${outProd}"
 
 # function which creates the actual request from
 # a template and returns the path to the request
 
 inputNum=$#
-[ "$inputNum" -ne 5 ] && return ${ERR_PREPROCESS}
+[ "$inputNum" -ne 6 ] && return ${ERR_PREPROCESS}
 
 local prodname=$1
 local ml_factor=$2
-local performCropping=$3
-local subsettingBoxWKT=$4
-local outprod=$5
+local srcPixelSpacing=$3
+local performCropping=$4
+local subsettingBoxWKT=$5
+local outprod=$6
 
 local commentSbsBegin=""
 local commentSbsEnd=""
@@ -571,7 +606,7 @@ else
     commentCalSrcEnd="${endCommentXML}"
 fi
 #compute pixel spacing according to the multilook factor
-pixelSpacing=$(echo "scale=1; 10.0*$ml_factor" | bc )
+pixelSpacing=$(echo "scale=1; $srcPixelSpacing*$ml_factor" | bc )
 #sets the output filename
 snap_request_filename="${TMPDIR}/$( uuidgen ).xml"
 
@@ -646,7 +681,7 @@ ${commentMlBegin}  <node id="Multilook">
       <pixelSpacingInMeter>${pixelSpacing}</pixelSpacingInMeter>
       <!-- <pixelSpacingInDegree>8.983152841195215E-5</pixelSpacingInDegree> -->
       <mapProjection>WGS84(DD)</mapProjection>
-      <nodataValueAtSea>true</nodataValueAtSea>
+      <nodataValueAtSea>false</nodataValueAtSea>
       <saveDEM>false</saveDEM>
       <saveLatLon>false</saveLatLon>
       <saveIncidenceAngleFromEllipsoid>false</saveIncidenceAngleFromEllipsoid>
@@ -1868,9 +1903,9 @@ function main() {
         ### GET PIXEL SPACING FROM MISSION IDENTIFIER OF MASTER PRODUCT
 
         # report activity in the log
-        ciop-log "INFO" "Getting pixel spacing from mission identifier"
+        ciop-log "INFO" "Getting pixel spacing"
         #get pixel spacing from mission identifier
-        pixelSpacing=$( get_pixel_spacing "${mission}")
+        pixelSpacing=$( get_pixel_spacing "${mission}" "${prodType}" "${prodname}")
         returnCode=$?
         [ $returnCode -eq 0 ] || return $returnCode
         if [ $isMaster -eq 1 ] ; then
