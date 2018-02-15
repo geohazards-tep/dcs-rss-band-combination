@@ -109,27 +109,42 @@ function check_product_type() {
   fi
 
   if [ ${mission} = "Kompsat-3"  ]; then
-      prodTypeName=$(ls ${retrievedProduct}/*.tif | head -1 | sed -n -e 's|^.*_\(.*\)_[A-Z].tif$|\1|p')
-      [[ -z "$prodTypeName" ]] && return ${ERR_GETPRODTYPE}
-      [[ "$prodTypeName" != "L1G" ]] && return $ERR_WRONGPRODTYPE
+      #naming convention K3_”Time”_”OrbNo”_"PassNo"_”ProcLevel”
+      prodTypeName=${productName:(-3)}
+      if [[ "$prodTypeName" != "L1G" ]] ; then
+          return $ERR_WRONGPRODTYPE
+      fi  
   fi
 
   if [ ${mission} = "Landsat-8" ]; then
-      prodTypeName=""
       #Extract metadata file from Landsat
       filename="${retrievedProduct##*/}"; ext="${filename#*.}"
+      ciop-log "INFO" "Retrieving product type from Landsat 8 product: $filename"
+      ciop-log "INFO" "Product extension : $ext"
       if [[ "$ext" == "tar.bz" ]]; then
+	  ciop-log "INFO" "Running command: tar xjf $retrievedProduct ${filename%%.*}_MTL.txt"
           tar xjf $retrievedProduct ${filename%%.*}_MTL.txt
           returnCode=$?
           [ $returnCode -eq 0 ] || return ${ERR_GETPRODTYPE}
           [[ -e "${filename%%.*}_MTL.txt" ]] || return ${ERR_GETPRODTYPE}
           prodTypeName=$(sed -n -e 's|^.*DATA_TYPE.*\"\(.*\)\".*$|\1|p' ${filename%%.*}_MTL.txt)
           rm -f ${filename%%.*}_MTL.txt
+      elif
+	  [[ "$ext" == "tar" ]]; then
+          ciop-log "INFO" "Running command: tar xf $retrievedProduct *_MTL.txt"
+          tar xf $retrievedProduct *_MTL.txt
+          returnCode=$?
+          [ $returnCode -eq 0 ] || return ${ERR_GETPRODTYPE}
+          prodTypeName=$(sed -n -e 's|^.*DATA_TYPE.*\"\(.*\)\".*$|\1|p' *_MTL.txt)
+          rm -f *_MTL.txt
       else
           metadatafile=$(ls ${retrievedProduct}/vendor_metadata/*_MTL.txt)
           [[ -e "${metadatafile}" ]] || return ${ERR_GETPRODTYPE}
           prodTypeName=$(sed -n -e 's|^.*DATA_TYPE.*\"\(.*\)\".*$|\1|p' ${metadatafile})
       fi
+      # log the value, it helps debugging.
+      # the log entry is available in the process stderr
+      ciop-log "DEBUG" "Retrieved product type: ${prodTypeName}"
       if [[ "$prodTypeName" != "L1TP" ]] && [[ "$prodTypeName" != "L1T" ]]; then
           return $ERR_WRONGPRODTYPE
       fi
@@ -964,6 +979,26 @@ if [ ${mission} = "Landsat-8" ]; then
         ls "${prodname}"/LC8*_B[1-7].TIF > $tifList
         ls "${prodname}"/LC8*_B9.TIF >> $tifList
         ls "${prodname}"/LC8*_B1[0,1].TIF >> $tifList
+    elif [[ "$ext" == "tar" ]]; then
+        ciop-log "INFO" "Extracting $prodname"
+        currentBasename=$(basename $prodname)
+        currentBasename="${currentBasename%%.*}"
+        mkdir -p ${prodname%/*}/${currentBasename}
+        cd ${prodname%/*}
+        filename="${prodname##*/}"
+        tar xf $filename -C ${currentBasename}
+        returnCode=$?
+        [ $returnCode -eq 0 ] || return ${ERR_UNPACKING}
+        prodname=${prodname%/*}/${currentBasename}
+        # in these particular case the product name is not common
+        # to the base band names ---> rename all bands
+        prodBasename=$(basename ${prodname})
+	for bix in 1 2 3 4 5 6 7 9 10 11; 
+	do  
+       	   currentTif=$(ls "${prodname}"/LC08*_B"${bix}".TIF)
+           mv ${currentTif} ${prodname}/${prodBasename}_B${bix}.TIF
+           [[ $bix == "1"  ]] && ls ${prodname}/${prodBasename}_B${bix}.TIF > $tifList || ls ${prodname}/${prodBasename}_B${bix}.TIF >> $tifList
+        done
     else
         ls "${prodname}"/LS08*_B0[1-7].TIF > $tifList
         ls "${prodname}"/LS08*_B09.TIF >> $tifList
