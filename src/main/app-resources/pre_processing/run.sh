@@ -81,10 +81,12 @@ function check_product_type() {
   local productName=$( basename "$retrievedProduct")
 
   if [ ${mission} = "Sentinel-1"  ] ; then
-      #productName assumed like S1A_IW_TTT* where TTT is the product type to be extracted
-      prodTypeName=$( echo ${productName:7:3} )
+      #productName assumed like S1A_IW_TTTT_* where TTTT is the product type to be extracted
+      prodTypeName=$( echo ${productName:7:4} )
       [ -z "${prodTypeName}" ] && return ${ERR_GETPRODTYPE}
-      [ $prodTypeName != "GRD" ] && return $ERR_WRONGPRODTYPE
+      if [ $prodTypeName != "GRDH" ] && [ $prodTypeName != "GRDM" ]; then
+          return $ERR_WRONGPRODTYPE
+      fi
   fi
 
   if [ ${mission} = "Sentinel-2"  ] ; then
@@ -107,27 +109,42 @@ function check_product_type() {
   fi
 
   if [ ${mission} = "Kompsat-3"  ]; then
-      prodTypeName=$(ls ${retrievedProduct}/*.tif | head -1 | sed -n -e 's|^.*_\(.*\)_[A-Z].tif$|\1|p')
-      [[ -z "$prodTypeName" ]] && return ${ERR_GETPRODTYPE}
-      [[ "$prodTypeName" != "L1G" ]] && return $ERR_WRONGPRODTYPE
+      #naming convention K3_”Time”_”OrbNo”_"PassNo"_”ProcLevel”
+      prodTypeName=${productName:(-3)}
+      if [[ "$prodTypeName" != "L1G" ]] ; then
+          return $ERR_WRONGPRODTYPE
+      fi  
   fi
 
   if [ ${mission} = "Landsat-8" ]; then
-      prodTypeName=""
       #Extract metadata file from Landsat
       filename="${retrievedProduct##*/}"; ext="${filename#*.}"
+      ciop-log "INFO" "Retrieving product type from Landsat 8 product: $filename"
+      ciop-log "INFO" "Product extension : $ext"
       if [[ "$ext" == "tar.bz" ]]; then
+	  ciop-log "INFO" "Running command: tar xjf $retrievedProduct ${filename%%.*}_MTL.txt"
           tar xjf $retrievedProduct ${filename%%.*}_MTL.txt
           returnCode=$?
           [ $returnCode -eq 0 ] || return ${ERR_GETPRODTYPE}
           [[ -e "${filename%%.*}_MTL.txt" ]] || return ${ERR_GETPRODTYPE}
           prodTypeName=$(sed -n -e 's|^.*DATA_TYPE.*\"\(.*\)\".*$|\1|p' ${filename%%.*}_MTL.txt)
           rm -f ${filename%%.*}_MTL.txt
+      elif
+	  [[ "$ext" == "tar" ]]; then
+          ciop-log "INFO" "Running command: tar xf $retrievedProduct *_MTL.txt"
+          tar xf $retrievedProduct *_MTL.txt
+          returnCode=$?
+          [ $returnCode -eq 0 ] || return ${ERR_GETPRODTYPE}
+          prodTypeName=$(sed -n -e 's|^.*DATA_TYPE.*\"\(.*\)\".*$|\1|p' *_MTL.txt)
+          rm -f *_MTL.txt
       else
           metadatafile=$(ls ${retrievedProduct}/vendor_metadata/*_MTL.txt)
           [[ -e "${metadatafile}" ]] || return ${ERR_GETPRODTYPE}
           prodTypeName=$(sed -n -e 's|^.*DATA_TYPE.*\"\(.*\)\".*$|\1|p' ${metadatafile})
       fi
+      # log the value, it helps debugging.
+      # the log entry is available in the process stderr
+      ciop-log "DEBUG" "Retrieved product type: ${prodTypeName}"
       if [[ "$prodTypeName" != "L1TP" ]] && [[ "$prodTypeName" != "L1T" ]]; then
           return $ERR_WRONGPRODTYPE
       fi
@@ -200,15 +217,47 @@ function mission_prod_retrieval(){
 }
 
 
+# function that gets the Sentinel-1 acquisition mode from product name
+function get_s1_acq_mode(){
+# function call get_s1_acq_mode "${prodname}"
+local prodname=$1
+# filename convention assumed like S1A_AA_* where AA is the acquisition mode to be extracted
+acqMode=$( echo ${prodname:4:2} )
+echo ${acqMode}
+return 0
+}
+
+
 # function that runs the gets the pixel size in meters depending on the mission data
 function get_pixel_spacing() {
 
-# function call get_pixel_size "${mission}"
+# function call get_pixel_size "${mission}" "${prodType}" "${prodname}"
 local mission=$1
+local prodType=$2
+local prodname=$3
 
 case "$mission" in
         "Sentinel-1")
-            echo 10
+	    acqMode=$(get_s1_acq_mode "${prodname}")
+	    if [ "${acqMode}" == "EW" ]; then
+	        if [ "${prodType}" == "GRDH" ]; then
+		    echo 25
+		elif [ "${prodType}" == "GRDM" ]; then
+		    echo 40
+		else
+		    return ${ERR_GETPIXELSPACING}	    
+		fi
+            elif [ "${acqMode}" == "IW" ]; then
+		if [ "${prodType}" == "GRDH" ]; then
+		    echo 10
+                elif [ "${prodType}" == "GRDM" ]; then
+		    echo 40
+                else
+                    return ${ERR_GETPIXELSPACING}
+                fi
+            else
+		return ${ERR_GETPIXELSPACING}
+	    fi
             ;;
 
         "Sentinel-2")
@@ -495,7 +544,7 @@ ciop-log "DEBUG" "ml_factor: ${ml_factor}"
 ciop-log "INFO" "Preparing SNAP request file for Sentinel 1 data pre processing"
 
 # prepare the SNAP request
-SNAP_REQUEST=$( create_snap_request_pre_processing_s1 "${prodname}" "${ml_factor}" "${performCropping}" "${subsettingBoxWKT}" "${outProd}")
+SNAP_REQUEST=$( create_snap_request_pre_processing_s1 "${prodname}" "${ml_factor}" "${pixelSpacing}" "${performCropping}" "${subsettingBoxWKT}" "${outProd}")
 [ $? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
 [ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST}
 # report activity in the log
@@ -528,19 +577,20 @@ fi
 
 function create_snap_request_pre_processing_s1() {
 
-# function call create_snap_request_pre_processing_s1 "${prodname}" "${ml_factor}" "${performCropping}" "${subsettingBoxWKT}"
+# function call create_snap_request_pre_processing_s1 "${prodname}" "${ml_factor}" "${pixelSpacing}" "${performCropping}" "${subsettingBoxWKT}" "${outProd}"
 
 # function which creates the actual request from
 # a template and returns the path to the request
 
 inputNum=$#
-[ "$inputNum" -ne 5 ] && return ${ERR_PREPROCESS}
+[ "$inputNum" -ne 6 ] && return ${ERR_PREPROCESS}
 
 local prodname=$1
 local ml_factor=$2
-local performCropping=$3
-local subsettingBoxWKT=$4
-local outprod=$5
+local srcPixelSpacing=$3
+local performCropping=$4
+local subsettingBoxWKT=$5
+local outprod=$6
 
 local commentSbsBegin=""
 local commentSbsEnd=""
@@ -571,7 +621,7 @@ else
     commentCalSrcEnd="${endCommentXML}"
 fi
 #compute pixel spacing according to the multilook factor
-pixelSpacing=$(echo "scale=1; 10.0*$ml_factor" | bc )
+pixelSpacing=$(echo "scale=1; $srcPixelSpacing*$ml_factor" | bc )
 #sets the output filename
 snap_request_filename="${TMPDIR}/$( uuidgen ).xml"
 
@@ -646,7 +696,7 @@ ${commentMlBegin}  <node id="Multilook">
       <pixelSpacingInMeter>${pixelSpacing}</pixelSpacingInMeter>
       <!-- <pixelSpacingInDegree>8.983152841195215E-5</pixelSpacingInDegree> -->
       <mapProjection>WGS84(DD)</mapProjection>
-      <nodataValueAtSea>true</nodataValueAtSea>
+      <nodataValueAtSea>false</nodataValueAtSea>
       <saveDEM>false</saveDEM>
       <saveLatLon>false</saveLatLon>
       <saveIncidenceAngleFromEllipsoid>false</saveIncidenceAngleFromEllipsoid>
@@ -929,6 +979,26 @@ if [ ${mission} = "Landsat-8" ]; then
         ls "${prodname}"/LC8*_B[1-7].TIF > $tifList
         ls "${prodname}"/LC8*_B9.TIF >> $tifList
         ls "${prodname}"/LC8*_B1[0,1].TIF >> $tifList
+    elif [[ "$ext" == "tar" ]]; then
+        ciop-log "INFO" "Extracting $prodname"
+        currentBasename=$(basename $prodname)
+        currentBasename="${currentBasename%%.*}"
+        mkdir -p ${prodname%/*}/${currentBasename}
+        cd ${prodname%/*}
+        filename="${prodname##*/}"
+        tar xf $filename -C ${currentBasename}
+        returnCode=$?
+        [ $returnCode -eq 0 ] || return ${ERR_UNPACKING}
+        prodname=${prodname%/*}/${currentBasename}
+        # in these particular case the product name is not common
+        # to the base band names ---> rename all bands
+        prodBasename=$(basename ${prodname})
+	for bix in 1 2 3 4 5 6 7 9 10 11; 
+	do  
+       	   currentTif=$(ls "${prodname}"/LC08*_B"${bix}".TIF)
+           mv ${currentTif} ${prodname}/${prodBasename}_B${bix}.TIF
+           [[ $bix == "1"  ]] && ls ${prodname}/${prodBasename}_B${bix}.TIF > $tifList || ls ${prodname}/${prodBasename}_B${bix}.TIF >> $tifList
+        done
     else
         ls "${prodname}"/LS08*_B0[1-7].TIF > $tifList
         ls "${prodname}"/LS08*_B09.TIF >> $tifList
@@ -1868,9 +1938,9 @@ function main() {
         ### GET PIXEL SPACING FROM MISSION IDENTIFIER OF MASTER PRODUCT
 
         # report activity in the log
-        ciop-log "INFO" "Getting pixel spacing from mission identifier"
+        ciop-log "INFO" "Getting pixel spacing"
         #get pixel spacing from mission identifier
-        pixelSpacing=$( get_pixel_spacing "${mission}")
+        pixelSpacing=$( get_pixel_spacing "${mission}" "${prodType}" "${prodname}")
         returnCode=$?
         [ $returnCode -eq 0 ] || return $returnCode
         if [ $isMaster -eq 1 ] ; then
