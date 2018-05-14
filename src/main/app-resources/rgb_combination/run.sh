@@ -299,8 +299,8 @@ function main ()
     # report activity in the log
     ciop-log "INFO" "Preparing SNAP request file for products stacking"
     # output prodcut name
-    basenameStack=stack_product.tif
-    outProdTIF=${TMPDIR}/${basenameStack}
+    basenameStackNoExt=stack_product
+    outProdTIF=${TMPDIR}/${basenameStackNoExt}.tif
     # prepare the SNAP request
     SNAP_REQUEST=$( create_snap_request_stack "${inputfilesDIM_list_csv}" "${outProdTIF}" "${inputfilesNum_real}" )
     [ $? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
@@ -328,25 +328,32 @@ function main ()
     ## RGB FULL RESOLUTION CREATION
     # report activity in the log
     ciop-log "INFO" "Full resolution RGB TIF visualization product creation"
-    outputRGB=${OUTPUTDIR}/RGB.tif
+    outputRGB_TIF=${OUTPUTDIR}/RGB.tif
+    outputRGB_PNG=${OUTPUTDIR}/RGB.png
     outputRGB_Prop=${OUTPUTDIR}/RGB.properties
     # create full resolution tif image with Red=B1 Green=B2 Blue=B3 due to given order within stacking operation
     ciop-log "DEBUG" "Running pconvert -b ${stackOrderRGB} -f tif -o ${OUTPUTDIR} ${outProdTIF} "
     pconvert -b ${stackOrderRGB} -f tif -o ${OUTPUTDIR} ${outProdTIF} &> /dev/null
     # check the exit code
     [ $? -eq 0 ] || return $ERR_PCONVERT
+    ciop-log "DEBUG" "Running pconvert -b ${stackOrderRGB} -f png -o ${TMPDIR} ${outProdTIF} "
+    pconvert -b ${stackOrderRGB} -f png -o ${TMPDIR} ${outProdTIF} &> /dev/null
+    # check the exit code
+    [ $? -eq 0 ] || return $ERR_PCONVERT
     rm ${outProdTIF}
-    pconvertOutTIF=${OUTPUTDIR}/${basenameStack}
-    gdalwarp -ot Byte -t_srs EPSG:4326 -srcalpha -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" ${pconvertOutTIF} ${outputRGB}
+    pconvertOutTIF=${OUTPUTDIR}/${basenameStackNoExt}.tif
+    gdalwarp -ot Byte -t_srs EPSG:4326 -srcalpha -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" ${pconvertOutTIF} ${outputRGB_TIF}
     returnCode=$?
     [ $returnCode -eq 0 ] || return ${ERR_CONVERT}
     #Remove temporary file
     rm -f ${pconvertOutTIF}
     #Add overviews
-    gdaladdo -r average ${outputRGB} 2 4 8 16
+    gdaladdo -r average ${outputRGB_TIF} 2 4 8 16
     returnCode=$?
     [ $returnCode -eq 0 ] || return ${ERR_CONVERT}    
-
+    # Rename PNG output and move to output directory
+    pconvertOutPNG=${TMPDIR}/${basenameStackNoExt}.png
+    mv ${pconvertOutPNG} ${outputRGB_PNG}
     # create properties file for phase tif product
     processingTime=$( date )
     description="RGB combination"
