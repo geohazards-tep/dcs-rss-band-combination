@@ -97,15 +97,14 @@ function check_product_type() {
   fi
 
   if [[ "${mission}" == "UK-DMC2" ]]; then
-      prodTypeName=$(ls ${retrievedProduct} | sed -n -e 's|^.*_\(.*\)\.tif$|\1|p')
-      [[ -z "$prodTypeName" ]] && return ${ERR_GETPRODTYPE}
+      if [[ -d "${retrievedProduct}" ]]; then
+          prodTypeName=$(ls ${retrievedProduct} | sed -n -e 's|^.*_\(.*\)\.tif$|\1|p')
+	  [[ -z "$prodTypeName" ]] && ciop-log "ERROR" "Failed to get product type from : ${retrievedProduct}"
+      else
+          ciop-log "ERROR" "Rerieved product ${retrievedProduct} is not a directory"
+	  return ${ERR_UNPACKING}
+      fi
       [[ "$prodTypeName" != "L1T" ]] && return $ERR_WRONGPRODTYPE
-  fi
-
-  if [ ${mission} = "Kompsat-2" ]; then
-      prodTypeName=$(ls ${retrievedProduct}/*.tif | head -1 | sed -n -e 's|^.*_\(.*\).tif$|\1|p')
-      [[ -z "$prodTypeName" ]] && return ${ERR_GETPRODTYPE}
-      [[ "$prodTypeName" != "1G" ]] && return $ERR_WRONGPRODTYPE
   fi
 
   if [ ${mission} = "Kompsat-3"  ]; then
@@ -899,6 +898,7 @@ else
     performResample="false"
 fi
 prodBasename=$(basename ${prodname})
+prodDIM=$(find ${prodname} -name '*.dim')
 outProdBasename=${prodBasename}_pre_proc
 outProd=${OUTPUTDIR_PRE_PROC}/${outProdBasename}
 
@@ -907,7 +907,7 @@ ciop-log "INFO" "Preparing SNAP request file for UK-DMC 2 data pre processing"
 # source bands list for UKDMC-2
 sourceBandsList=$(get_band_list "${prodBasename}" "UK-DMC2" ) 
 # prepare the SNAP request
-SNAP_REQUEST=$( create_snap_request_rsmpl_rprj_sbs "${prodname}" "${performResample}" "${target_spacing}" "${performCropping}" "${subsettingBoxWKT}" "${sourceBandsList}" "${outProd}")
+SNAP_REQUEST=$( create_snap_request_rsmpl_rprj_sbs "${prodDIM}" "${performResample}" "${target_spacing}" "${performCropping}" "${subsettingBoxWKT}" "${sourceBandsList}" "${outProd}")
 [ $? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
 [ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST}
 # report activity in the log
@@ -1777,6 +1777,8 @@ EOF
 
 function main() {
 
+    [ $DEBUG -eq 1 ] && echo $SNAP_HOME
+    [ $DEBUG -eq 1 ] && echo $SNAP_VERSION
     #get input product list and convert it into an array
     # It should contain only the RED product
     local -a inputfiles=($@)
