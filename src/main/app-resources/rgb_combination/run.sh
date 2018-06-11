@@ -4,9 +4,9 @@
 source ${ciop_job_include}
 
 # set the environment variables to use ESA SNAP toolbox
-#export SNAP_HOME=$_CIOP_APPLICATION_PATH/common/snap
-#export PATH=${SNAP_HOME}/bin:${PATH}
 source $_CIOP_APPLICATION_PATH/gpt/snap_include.sh
+# put /opt/anaconda/bin ahead to the PATH list to ensure gdal to point to the anaconda installation dir
+export PATH=/opt/anaconda/bin:${PATH}
 
 # define the exit codes
 SUCCESS=0
@@ -175,6 +175,9 @@ EOF
 
 function main ()
 {
+    [ $DEBUG -eq 1 ] && echo $SNAP_HOME
+    [ $DEBUG -eq 1 ] && echo $SNAP_VERSION
+    [ $DEBUG -eq 1 ] && which gdal_translate
     #get input product list and convert it into an array
     local -a inputfiles=($@)
 
@@ -240,7 +243,7 @@ function main ()
     # data list for stacking
     # First band must be the master one to resample the remaining ones wrt the master one that is the first in the satcking operator
     # stack order
-    stackOrderRGB=""
+    declare -a stackOrderRGB
     firstIndexInstack=""
     secondIndexInStack=""
     thirdIndexInStack=""
@@ -249,22 +252,22 @@ function main ()
 	    firstIndexInstack=${redIndex}
             secondIndexInStack=${greenIndex}
             thirdIndexInStack=${blueIndex}
-            stackOrderRGB="1,2,3"
+            stackOrderRGB=(1 2 3)
         ;;
         "$greenIndex") #GREEN MASTER
             firstIndexInstack=${greenIndex}
             secondIndexInStack=${blueIndex}
             thirdIndexInStack=${redIndex}
-            stackOrderRGB="3,1,2"
+            stackOrderRGB=(3 1 2)
         ;;
         "$blueIndex") #BLUE MASTER
             firstIndexInstack=${blueIndex}
             secondIndexInStack=${redIndex}
             thirdIndexInStack=${greenIndex}
-            stackOrderRGB="2,3,1"
+            stackOrderRGB=(2 3 1)
         ;;
     esac
-
+    
     inputfilesDIM_list_csv=${inputfilesDIM["${firstIndexInstack}"]},${inputfilesDIM["${secondIndexInStack}"]},${inputfilesDIM["${thirdIndexInStack}"]}
     # data list for properties extraction 
     declare -a inputfilesProp_list
@@ -292,8 +295,7 @@ function main ()
                 echo pixelSpacingMeters=$pixelSpacingMeters >> $prodList_prop
             ;;
 	esac
-    done
-			
+    done 
                     
     ## DATA STACKING 
     # report activity in the log
@@ -331,33 +333,30 @@ function main ()
     outputRGB_TIF=${OUTPUTDIR}/RGB.tif
     outputRGB_PNG=${OUTPUTDIR}/RGB.png
     outputRGB_Prop=${OUTPUTDIR}/RGB.properties
+    
     # create full resolution tif image with Red=B1 Green=B2 Blue=B3 due to given order within stacking operation
-    ciop-log "DEBUG" "Running pconvert -b ${stackOrderRGB} -f tif -o ${OUTPUTDIR} ${outProdTIF} "
-    pconvert -b ${stackOrderRGB} -f tif -o ${OUTPUTDIR} ${outProdTIF} &> /dev/null
-    # check the exit code
-    [ $? -eq 0 ] || return $ERR_PCONVERT
-    ciop-log "DEBUG" "Running pconvert -b ${stackOrderRGB} -f png -o ${TMPDIR} ${outProdTIF} "
-    pconvert -b ${stackOrderRGB} -f png -o ${TMPDIR} ${outProdTIF} &> /dev/null
-    # check the exit code
-    [ $? -eq 0 ] || return $ERR_PCONVERT
+    gdal_translate -ot Byte -of GTiff -b ${stackOrderRGB[0]} -b ${stackOrderRGB[1]} -b ${stackOrderRGB[2]} -scale -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" ${outProdTIF} temp-outputfile.tif 
+    returnCode=$?
+    [ $returnCode -eq 0 ] || return ${ERR_CONVERT}
     rm ${outProdTIF}
-    pconvertOutTIF=${OUTPUTDIR}/${basenameStackNoExt}.tif
-    gdalwarp -ot Byte -t_srs EPSG:4326 -srcalpha -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" ${pconvertOutTIF} ${outputRGB_TIF}
+    #re-projection
+    gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" temp-outputfile.tif ${outputRGB_TIF}
     returnCode=$?
     [ $returnCode -eq 0 ] || return ${ERR_CONVERT}
     #Remove temporary file
-    rm -f ${pconvertOutTIF}
+    rm -f temp-outputfile.tif
     #Add overviews
     gdaladdo -r average ${outputRGB_TIF} 2 4 8 16
     returnCode=$?
     [ $returnCode -eq 0 ] || return ${ERR_CONVERT}    
-    # Rename PNG output and move to output directory
-    pconvertOutPNG=${TMPDIR}/${basenameStackNoExt}.png
-    mv ${pconvertOutPNG} ${outputRGB_PNG}
+    # Create PNG output
+    gdal_translate -ot Byte -of PNG ${outputRGB_TIF} ${outputRGB_PNG}
+    #remove temp xml file produced together with png
+    rm -f ${outputRGB_PNG}.aux.xml
     # create properties file for phase tif product
     processingTime=$( date )
     description="RGB combination"
-    output_properties=$( propertiesFileCratorTIF  "${outputRGB}" "${description}" "${prodList_prop}"  "${processingTime}" "${outputRGB_Prop}" )
+    output_properties=$( propertiesFileCratorTIF  "${outputRGB_TIF}" "${description}" "${prodList_prop}"  "${processingTime}" "${outputRGB_Prop}" )
     # report activity in the log
     ciop-log "DEBUG" "Properties file created: ${output_properties}"
     # publish the coergistered product
