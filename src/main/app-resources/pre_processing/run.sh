@@ -2054,7 +2054,7 @@ export OUTPUTDIR_PRE_PROC_RED=${TMPDIR}/outputPreProcRed
 mkdir -p ${TMPDIR}/outputPreProcGreen
 export OUTPUTDIR_PRE_PROC_GREEN=${TMPDIR}/outputPreProcGreen
 # debug flag setting
-export DEBUG=0
+export DEBUG=1
 
 # loop on input file to create a product array that will be processed by the main process
 declare -a inputfiles
