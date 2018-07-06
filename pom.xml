@@ -50,12 +50,12 @@
                     <require>snap6</require>
                     <require>miniconda</require>
                     <require>openjpeg2</require>
-		    <require>proj-devel</require>
+                    <require>proj-devel</require>
                     <require>OTB</require>
                   </requires>
                   <postinstallScriptlet combine.self="override">
                     <script>conda update conda -y &amp;&amp; conda install --file /application/dependencies/packages.list</script>
-		  </postinstallScriptlet>
+                  </postinstallScriptlet>
                 </configuration>
               </execution>
             </executions>
