@@ -1813,9 +1813,15 @@ local index=0
 prodBasename=$(basename ${prodname})
 local imgFile=""
 imgFile=$(find ${prodname}/ -name 'K5_*_L1D.tif')
+# remove metadata from tif to avoid that SNAP-gpt uses the K5 reader (that doesn't work) while converting into DIM
+gdal_edit.py -unsetmd ${imgFile}
+[ $? -eq 0 ] || return ${ERR_GDAL}
+# rename data to avoid that SNAP-gpt uses the K5 reader (that doesn't work) while converting into DIM
+file2convert=${TMPDIR}/product2convert.tif
+mv ${imgFile} ${file2convert}
 # convert tif to beam dimap format
 ciop-log "INFO" "Invoking SNAP-pconvert on the generated request file for tif to dim conversion"
-pconvert -f dim -o ${TMPDIR} ${imgFile}
+pconvert -f dim -o ${TMPDIR} ${file2convert}
 # check the exit code
 [ $? -eq 0 ] || return $ERR_SNAP
 # get translated product name
