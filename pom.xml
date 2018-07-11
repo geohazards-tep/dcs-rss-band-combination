@@ -8,7 +8,7 @@
   <parent>
     <groupId>com.terradue</groupId>
     <artifactId>dcs-bash-parent</artifactId>
-    <version>3.0.0-docker</version>
+    <version>3.0.1-docker</version>
   </parent>
   <description>The Band Combination on-demand processing service provides RGB band combination from user defined bands of single or multiple EO data products. All bands are in their native format (no radiometric correction applied) thus can serve only for fast screening of the data, not for further processing.</description>
   <version>1.5.1</version>
