@@ -179,6 +179,42 @@ function check_product_type() {
       [[ "$prodTypeName" != "SGF" ]] && return $ERR_WRONGPRODTYPE
   fi
 
+  if [[ "${mission}" == "SPOT-6" ]] || [[ "${mission}" == "SPOT-7"  ]]; then
+        spot_xml=$(find ${retrievedProduct}/ -name 'DIM_SPOT?_MS_*.XML' | head -1 | sed 's|^.*\/||')
+        prodTypeName="${spot_xml:29:3}"
+        [[ "$prodTypeName" != "ORT" ]] && return $ERR_WRONGPRODTYPE
+  fi
+
+  if [[ "${mission}" == "Kompsat-5" ]]; then
+        #naming convention <K5>_<YYYYMMDDhhmmss>_<tttttt>_<nnnnn>_<o>_<MM><SS>_<PP>_<LLL> where LLL is the processing level
+        prodTypeName=${productName:47:3}
+        [[ "$prodTypeName" != "L1D" ]] && return $ERR_WRONGPRODTYPE
+  fi
+
+  if [[ "${mission}" == "VRSS1" ]]; then
+      filename="${retrievedProduct##*/}"; ext="${filename#*.}"
+      # assumption is that the product has .tar extension or is already uncompressed
+      if  [[ "$ext" == "tar" ]]; then
+      # if tar uncompress the product
+          ciop-log "INFO" "Running command: tar xf $retrievedProduct"
+          tar xf $retrievedProduct
+          returnCode=$?
+          [ $returnCode -eq 0 ] || return ${ERR_GETPRODTYPE}
+          # find the fisrt band tif product
+          vrss1_b1=$(find ./ -name '*_1.tif')
+          [[ "${vrss1_b1}" == "" ]] && return ${ERR_GETPRODTYPE}
+          dir_untar_vrss1=$(dirname ${vrss1_b1})
+          rm -r -f ${dir_untar_vrss1}
+      else
+          vrss1_b1=$(find ${retrievedProduct}/ -name '*_1.tif')
+          [[ "${vrss1_b1}" == "" ]] && return ${ERR_GETPRODTYPE}
+      fi
+      # extract product type from product name
+      vrss1_b1=$(basename ${vrss1_b1})
+      l2b_test=$(echo "${vrss1_b1}" | grep "L2B")
+      [[ "${l2b_test}" != "" ]] && prodTypeName="L2B" ||  return $ERR_WRONGPRODTYPE
+  fi
+
   echo ${prodTypeName}
   return 0
 }
@@ -224,7 +260,7 @@ function mission_prod_retrieval(){
         [ "${prod_basename_substr_3}" = "S1B" ] && mission="Sentinel-1"
         [ "${prod_basename_substr_3}" = "S2A" ] && mission="Sentinel-2"
         [ "${prod_basename_substr_3}" = "S2B" ] && mission="Sentinel-2"
-        #[ "${prod_basename_substr_3}" = "K5_" ] && mission="Kompsat-5"
+        [ "${prod_basename_substr_3}" = "K5_" ] && mission="Kompsat-5"
         [ "${prod_basename_substr_3}" = "K3_" ] && mission="Kompsat-3"
         [ "${prod_basename_substr_3}" = "LC8" ] && mission="Landsat-8"
         [ "${prod_basename_substr_4}" = "LS08" ] && mission="Landsat-8"
@@ -236,6 +272,17 @@ function mission_prod_retrieval(){
         ukdmc2_test=$(echo "${prod_basename}" | grep "UK-DMC-2")
         [ "${ukdmc2_test}" = "" ] || mission="UK-DMC-2"
         [ "${prod_basename_substr_4}" = "RS2_" ] && mission="Radarsat-2"
+        spot6_test=$(echo "${prod_basename}" | grep "SPOT6")
+        [[ -z "${spot6_test}" ]] && spot6_test=$(ls "${retrievedProduct}" | grep "SPOT6")
+        [ "${spot6_test}" = "" ] || mission="SPOT-6"
+        spot7_test=$(echo "${prod_basename}" | grep "SPOT7")
+        [[ -z "${spot7_test}" ]] && spot7_test=$(ls "${retrievedProduct}" | grep "SPOT7")
+        [ "${spot7_test}" = "" ] || mission="SPOT-7"
+        vrss1_test_1=$(echo "${prod_basename}" | grep "VRSS1")
+        vrss1_test_2=$(echo "${prod_basename}" | grep "VRSS-1")
+        if [[ "${vrss1_test_1}" != "" ]] || [[ "${vrss1_test_2}" != "" ]]; then
+            mission="VRSS1"
+        fi
 	#[ "${prod_basename}" = "Resurs-P" ] && mission="Resurs-P"
         #[ "${prod_basename}" = "Kanopus-V" ] && mission="Kanopus-V"
         #alos2_test=$(echo "${prod_basename}" | grep "ALOS2")
@@ -323,6 +370,24 @@ case "$mission" in
             echo  $pixSpac | awk '{ print sprintf("%.9f", $1); }'
             ;;
 
+        SPOT-[6-7])
+            spot_xml=$(find ${retrievedProduct}/ -name 'DIM_SPOT?_MS_*.XML' )
+            pixSpac=$( cat ${spot_xml} | grep RESAMPLING_SPACING | sed -n -e 's|^.*<RESAMPLING_SPACING .*>\(.*\)</RESAMPLING_SPACING>|\1|p' )
+            echo  $pixSpac | awk '{ print sprintf("%.9f", $1); }'
+            ;;
+
+        "Kompsat-5")
+            product_xml=$(find ${retrievedProduct}/ -name 'K5_*_Aux.xml')
+            pixSpac=$( cat ${product_xml} | grep GroundRangeGeometricResolution | sed -n -e 's|^.*<GroundRangeGeometricResolution>\(.*\)</GroundRangeGeometricResolution>|\1|p' )
+            echo  $pixSpac | awk '{ print sprintf("%.9f", $1); }'
+            ;;
+
+        "VRSS1")
+            product_xml=$(find ${retrievedProduct}/ -name 'VRSS*_L2B_*[0-9].xml')
+            pixSpac=$( cat ${product_xml} | grep pixelSpacing | sed -n -e 's|^.*<pixelSpacing>\(.*\)</pixelSpacing>|\1|p' )
+            echo  $pixSpac | awk '{ print sprintf("%.9f", $1); }'
+            ;;
+
         *)
             return ${ERR_GETPIXELSPACING}
             ;;
@@ -378,13 +443,28 @@ case "$mission" in
             return $?
             ;;
 
+        "VRSS1")
+	    pre_processing_generic_optical "${prodname}" "${mission}" "${pixelSpacing}" "${pixelSpacingMaster}" "${performCropping}" "${subsettingBoxWKT}"
+            return $?
+            ;;
+
         "Pleiades")
-            pre_processing_pleiades "${prodname}" "${pixelSpacing}" "${pixelSpacingMaster}" "${performCropping}" "${subsettingBoxWKT}"
+            pre_processing_optical_otb "${prodname}" "${mission}" "${pixelSpacing}" "${pixelSpacingMaster}" "${performCropping}" "${subsettingBoxWKT}"
             return $?
             ;;
 
         "Radarsat-2")
             pre_processing_rs2 "${prodname}" "${pixelSpacing}" "${pixelSpacingMaster}" "${performCropping}" "${subsettingBoxWKT}"
+            return $?
+            ;;
+
+	SPOT-[6-7])
+            pre_processing_optical_otb "${prodname}" "${mission}" "${pixelSpacing}" "${pixelSpacingMaster}" "${performCropping}" "${subsettingBoxWKT}"
+            return $?
+            ;;
+
+	"Kompsat-5")
+            pre_processing_k5 "${prodname}" "${pixelSpacing}" "${pixelSpacingMaster}" "${performCropping}" "${subsettingBoxWKT}"
             return $?
             ;;
 
@@ -464,6 +544,21 @@ case "$mission" in
                  bandListCsv="Sigma0_VV_db"
 	    fi
             ;;
+
+        SPOT-[6-7])
+            bandListCsv="Blue,Green,Red,NIR"
+	    ;;
+
+        "Kompsat-5")
+            # naming convention is K5>_<YYYYMMDDhhmmss>_<tttttt>_<nnnnn>_<o>_<MM><SS>_<PP>_<LLL> where PP is the polarization
+            # always single pol
+            bandListCsv=${prodname:38:2}
+            ;;
+
+        "VRSS1")
+            bandListCsv="${prodname}_1,${prodname}_2,${prodname}_3,${prodname}_4"
+            ;;
+
         *)
             return "${ERR_BAND_LIST}"
             ;;
@@ -1284,26 +1379,33 @@ fi
 }
 
 
-# Pleiades pre processing function
-function pre_processing_pleiades() {
-# function call pre_processing_ukdmc2 "${prodname}" "${pixelSpacing}" "${pixelSpacingMaster}" "${performCropping}" "${subsettingBoxWKT}"
+# Optical pre processing function with otb calibration
+function pre_processing_optical_otb() {
+# function call pre_processing_optical_otb "${prodname}" "${mission}" "${pixelSpacing}" "${pixelSpacingMaster}" "${performCropping}" "${subsettingBoxWKT}"
 
 inputNum=$#
-[ "$inputNum" -ne 5 ] && return ${ERR_PREPROCESS}
+[ "$inputNum" -ne 6 ] && return ${ERR_PREPROCESS}
 
 local prodname=$1
-local pixelSpacing=$2
-local pixelSpacingMaster=$3
-local performCropping=$4
-local subsettingBoxWKT=$5
+local mission=$2
+local pixelSpacing=$3
+local pixelSpacingMaster=$4
+local performCropping=$5
+local subsettingBoxWKT=$6
 local index=0
 prodBasename=$(basename ${prodname})
+local imgFile=""
 # Get multispectral image file
-pleiades_product=$(find ${prodname}/ -name 'IMG_*MS_*.JP2')
+if [ ${mission} = "Pleiades" ]; then 
+    imgFile=$(find ${prodname}/ -name 'IMG_*MS_*.JP2')
+elif [ ${mission} = "SPOT-6" ] || [ ${mission} = "SPOT-7" ]; then
+    imgFile=$(find ${prodname}/ -name 'IMG_SPOT?_MS_*.JP2')
+fi
 # set output calibrated filename
-outputCal="${pleiades_product##*/}"; outputCal="${outputCal%.JP2}.tif"
+outputCal="${imgFile##*/}"; outputCal="${outputCal%.JP2}.tif"
 #run OTB optical calibration
-otbcli_OpticalCalibration -in ${pleiades_product} -out ${outputCal} -ram ${RAM_AVAILABLE}
+ciop-log "INFO" "Invoking OTB for optical calibration"
+otbcli_OpticalCalibration -in ${imgFile} -out ${outputCal} -ram ${RAM_AVAILABLE}
 outputCalDIM="${outputCal%.tif}.dim"
 # convert tif to beam dimap format
 ciop-log "INFO" "Invoking SNAP-pconvert on the generated request file for tif to dim conversion"
@@ -1327,7 +1429,7 @@ done
 # loop over known product bands to fill target bands list
 targetBandsNamesListTXT=${TMPDIR}/targetBandsNamesList.txt
 # source bands list for Pleiades
-sourceBandsList=$(get_band_list "${prodBasename}" "Pleiades" )
+sourceBandsList=$(get_band_list "${prodBasename}" "${mission}" )
 # convert band from comma separted values to space separated values
 bandListSsv=$( echo "${sourceBandsList}" | sed 's|,| |g' )
 # convert ssv to array
@@ -1345,7 +1447,7 @@ for bid in `seq 0 $numBands`; do
 done
 # build request file for rename all the bands contained into the product
 # report activity in the log
-outProdRename=${TMPDIR}/pleiades_rename_bands
+outProdRename=${TMPDIR}/output_cal_renamed_bands
 ciop-log "INFO" "Preparing SNAP request file for bands renaming"
 # prepare the SNAP request
 SNAP_REQUEST=$( create_snap_request_rename_all_bands "${outputCalDIM}" "${currentBandsListTXT}" "${targetBandsNamesListTXT}" "${outProdRename}")
@@ -1521,6 +1623,44 @@ elif [ ${mission} = "Kompsat-3" ]; then
     ls "${prodname}"/K3_*_L1G_G*.tif >> $tifList
     ls "${prodname}"/K3_*_L1G_B*.tif >> $tifList
     ls "${prodname}"/K3_*_L1G_N*.tif >> $tifList
+elif [ ${mission} = "VRSS1" ]; then
+    #Check if downloaded product is compressed and extract it (in tar is not automatically extracted, otherwise yes)
+    ext="${prodname##*/}"; ext="${ext#*.}"
+    ciop-log "INFO" "Product extension is: $ext"
+    # assumption is that the product has .tar extension or is already uncompressed
+    if  [[ "$ext" == "tar" ]]; then
+        ciop-log "INFO" "Extracting $prodname"
+        currentBasename=$(basename $prodname)
+        currentBasename="${currentBasename%%.*}"
+        mkdir -p ${prodname%/*}/${currentBasename}
+        cd ${prodname%/*}
+        filename="${prodname##*/}"
+        tar xf $filename -C ${currentBasename}
+        returnCode=$?
+        [ $returnCode -eq 0 ] || return ${ERR_UNPACKING}
+        prodname=${prodname%/*}/${currentBasename}
+    fi
+    prodBasename=$(basename ${prodname})     
+    vrss1_b1=$(find ${prodname}/ -name '*_1.tif')
+    vrss1_name="${vrss1_b1%_1.tif}"
+    vrss1_name=$(basename ${vrss1_name})
+    # in this case the product name is not common
+    # to the base band names ---> rename all bands
+    if [ ${prodBasename} != ${vrss1_name} ]; then
+        # in this case the product name is not common
+        # to the base band names ---> rename all bands
+        for bix in 1 2 3 4 ;
+        do
+           currentTif=$(ls "${prodname}"/*_"${bix}".tif)
+           mv ${currentTif} ${prodname}/${prodBasename}_${bix}.tif
+           [[ $bix == "1"  ]] && ls ${prodname}/${prodBasename}_${bix}.tif > $tifList || ls ${prodname}/${prodBasename}_${bix}.tif >> $tifList
+        done
+    else
+        ls "${prodname}"/*_1.tif > $tifList
+        ls "${prodname}"/*_2.tif >> $tifList
+        ls "${prodname}"/*_3.tif >> $tifList
+        ls "${prodname}"/*_4.tif >> $tifList
+    fi 
 else
     return ${ERR_PREPROCESS}
 fi
@@ -1546,8 +1686,8 @@ numProd=$index
 ciop-log "INFO" "Products stacking"
 # output product name
 outProdStack=${TMPDIR}/stack_product
-# customized processing for kompsat-2 because snap fails
-if [ ${mission} = "Kompsat-2" ]; then
+# customized processing for kompsat-2 and VRSS1 because snap fails
+if [ ${mission} = "Kompsat-2" ] || [ ${mission} = "VRSS1" ] ; then
     # convert file list from comma separted values to space separated values
     filesListSsv=$( echo "${filesListCSV}" | sed 's|,| |g' )
     # convert ssv to array
@@ -1652,6 +1792,235 @@ else
         return $ERR_SNAP
     fi
 fi
+
+}
+
+
+
+# Pre processing function for Kompsat-5
+function pre_processing_k5() {
+# function call pre_processing_k5 "${prodname}" "${pixelSpacing}" "${pixelSpacingMaster}" "${performCropping}" "${subsettingBoxWKT}"
+
+inputNum=$#
+[ "$inputNum" -ne 5 ] && return ${ERR_PREPROCESS}
+
+local prodname=$1
+local pixelSpacing=$2
+local pixelSpacingMaster=$3
+local performCropping=$4
+local subsettingBoxWKT=$5
+local index=0
+prodBasename=$(basename ${prodname})
+local imgFile=""
+imgFile=$(find ${prodname}/ -name 'K5_*_L1D.tif')
+# remove metadata from tif to avoid that SNAP-gpt uses the K5 reader (that doesn't work) while converting into DIM
+gdal_edit.py -unsetmd ${imgFile}
+[ $? -eq 0 ] || return ${ERR_GDAL}
+# rename data to avoid that SNAP-gpt uses the K5 reader (that doesn't work) while converting into DIM
+file2convert=${TMPDIR}/product2convert.tif
+mv ${imgFile} ${file2convert}
+# convert tif to beam dimap format
+ciop-log "INFO" "Invoking SNAP-pconvert on the generated request file for tif to dim conversion"
+pconvert -f dim -o ${TMPDIR} ${file2convert}
+# check the exit code
+[ $? -eq 0 ] || return $ERR_SNAP
+# get translated product name
+imgFileDIM=$(find ${TMPDIR} -name '*.dim')
+# define output name of DIM product with K5 file converted into dB
+imgFileDIM_dB=${TMPDIR}/${prodBasename}_dB.dim
+ciop-log "INFO" "Preparing SNAP request file for dB scaling"
+SNAP_REQUEST=$( create_snap_request_linear_to_dB "${imgFileDIM}" "${imgFileDIM_dB}" )
+[ $? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
+[ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST}
+# report activity in the log
+ciop-log "INFO" "Generated request file: ${SNAP_REQUEST}"
+# report activity in the log
+ciop-log "INFO" "Invoking SNAP-gpt on the generated request file for dB scaling"
+# invoke the ESA SNAP toolbox
+gpt $SNAP_REQUEST -c "${CACHE_SIZE}" &> /dev/null
+# check the exit code
+[ $? -eq 0 ] || return $ERR_SNAP
+# remove temp file product in beam dimap
+rm -rf "${imgFileDIM%.dim}.d*"
+# get bands name
+currentBandsList=$( xmlstarlet sel -t -v "/Dimap_Document/Image_Interpretation/Spectral_Band_Info/BAND_NAME" ${imgFileDIM_dB} )
+currentBandsList=(${currentBandsList})
+currentBandsList_num=${#currentBandsList[@]}
+currentBandsListTXT=${TMPDIR}/currentBandsList.txt
+# loop on band names to fill band list
+let "currentBandsList_num-=1"
+for index in `seq 0 $currentBandsList_num`;
+do
+    if [ $index -eq 0  ] ; then
+        echo ${currentBandsList[${index}]} > ${currentBandsListTXT}
+    else
+        echo  ${currentBandsList[${index}]} >> ${currentBandsListTXT}
+    fi
+done
+# loop over known product bands to fill target bands list
+targetBandsNamesListTXT=${TMPDIR}/targetBandsNamesList.txt
+# source bands list for Pleiades
+sourceBandsList=$(get_band_list "${prodBasename}" "Kompsat-5" )
+# convert band from comma separted values to space separated values
+bandListSsv=$( echo "${sourceBandsList}" | sed 's|,| |g' )
+# convert ssv to array
+declare -a bandListArray=(${bandListSsv})
+# get number of bands
+numBands=${#bandListArray[@]}
+local bid=0
+let "numBands-=1"
+for bid in `seq 0 $numBands`; do
+    if [ $bid -eq 0  ] ; then
+        echo ${bandListArray[$bid]} > ${targetBandsNamesListTXT}
+    else
+        echo ${bandListArray[$bid]} >> ${targetBandsNamesListTXT}
+    fi
+done
+# build request file for rename all the bands contained into the product
+# report activity in the log
+outProdRename=${TMPDIR}/output_renamed_bands
+ciop-log "INFO" "Preparing SNAP request file for bands renaming"
+# prepare the SNAP request
+SNAP_REQUEST=$( create_snap_request_rename_all_bands "${imgFileDIM_dB}" "${currentBandsListTXT}" "${targetBandsNamesListTXT}" "${outProdRename}")
+[ $? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
+[ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST}
+# report activity in the log
+ciop-log "INFO" "Generated request file: ${SNAP_REQUEST}"
+# report activity in the log
+ciop-log "INFO" "Invoking SNAP-gpt on the generated request file bands renaming"
+# invoke the ESA SNAP toolbox
+gpt $SNAP_REQUEST -c "${CACHE_SIZE}" &> /dev/null
+# check the exit code
+[ $? -eq 0 ] || return $ERR_SNAP
+# remove temp calibrated file product in beam dimap
+rm -rf "${imgFileDIM_dB%.dim}.d*"
+
+# use the greter pixel spacing as target spacing (in order to downsample if needed, upsampling always avoided)
+local target_spacing=$( get_greater_pixel_spacing ${pixelSpacing} ${pixelSpacingMaster} )
+# check for resampling operator: to be used only if the resolution is differenet from the current product one
+local performResample=""
+if (( $(bc <<< "$target_spacing != $pixelSpacing") )) ; then
+    performResample="true"
+else
+    performResample="false"
+fi
+outProdBasename=${prodBasename}_pre_proc
+outProd=${OUTPUTDIR_PRE_PROC}/${outProdBasename}
+
+# report activity in the log
+ciop-log "INFO" "Preparing SNAP request file for data pre processing"
+# prepare the SNAP request
+SNAP_REQUEST=$( create_snap_request_rsmpl_rprj_sbs "${outProdRename}.dim" "${performResample}" "${target_spacing}" "${performCropping}" "${subsettingBoxWKT}" "${sourceBandsList}" "${outProd}")
+[ $? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
+[ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST}
+# report activity in the log
+ciop-log "INFO" "Generated request file: ${SNAP_REQUEST}"
+# report activity in the log
+ciop-log "INFO" "Invoking SNAP-gpt on the generated request file for data pre processing"
+# invoke the ESA SNAP toolbox
+gpt $SNAP_REQUEST -c "${CACHE_SIZE}" 2> log.txt
+returncode=$?
+test_txt=$(cat log.txt | grep "No intersection")
+rm -rf ${outProdRename}.d* ${targetBandsNamesListTXT}
+# catch proper error if any
+if [ $returncode -eq 0 ] ; then
+    # no error case
+    rm log.txt
+    return 0
+else
+    if [[ "${test_txt}" != "" ]]; then
+        # error due to void intersection between user AOI and data
+        [ $DEBUG -eq 1 ] && cat log.txt
+        log.txt
+        return $ERR_AOI
+    else
+        # generic snap-gpt execution error
+        [ $DEBUG -eq 1 ] && cat log.txt
+        log.txt
+        return $ERR_SNAP
+    fi
+fi
+
+}
+
+
+function create_snap_request_linear_to_dB(){
+# function call: create_snap_request_linear_to_dB "${inputfileDIM}" "${outputfileDIM}"
+
+# function which creates the actual request from
+# a template and returns the path to the request
+
+# get number of inputs
+inputNum=$#
+# check on number of inputs
+if [ "$inputNum" -ne "2" ] ; then
+    return ${SNAP_REQUEST_ERROR}
+fi
+
+local inputfileDIM=$1
+local outputfileDIM=$2
+
+#sets the output filename
+snap_request_filename="${TMPDIR}/$( uuidgen ).xml"
+
+cat << EOF > ${snap_request_filename}
+<graph id="Graph">
+  <version>1.0</version>
+  <node id="Read">
+    <operator>Read</operator>
+    <sources/>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <file>${inputfileDIM}</file>
+    </parameters>
+  </node>
+  <node id="BandMaths">
+    <operator>BandMaths</operator>
+    <sources>
+      <sourceProduct refid="Read"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <targetBands>
+        <targetBand>
+          <name>band_1</name>
+          <type>uint8</type>
+          <expression>if fneq(band_1,0) then max(20*log10(band_1),1) else 0</expression>
+          <description/>
+          <unit/>
+          <noDataValue>0.0</noDataValue>
+        </targetBand>
+      </targetBands>
+      <variables/>
+    </parameters>
+  </node>
+  <node id="Write">
+    <operator>Write</operator>
+    <sources>
+      <sourceProduct refid="BandMaths"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <file>${outputfileDIM}</file>
+      <formatName>BEAM-DIMAP</formatName>
+    </parameters>
+  </node>
+  <applicationData id="Presentation">
+    <Description/>
+    <node id="Read">
+            <displayPosition x="37.0" y="134.0"/>
+    </node>
+    <node id="BandMaths">
+      <displayPosition x="247.0" y="132.0"/>
+    </node>
+    <node id="Write">
+            <displayPosition x="455.0" y="135.0"/>
+    </node>
+  </applicationData>
+</graph>
+EOF
+
+    [ $? -eq 0 ] && {
+        echo "${snap_request_filename}"
+        return 0
+    } || return ${SNAP_REQUEST_ERROR}
 
 }
 
@@ -2133,6 +2502,11 @@ local inputDIM=$1
 local bandIdentifier=$2
 local outBandName=$3
 local outputProd=$4
+# put '' in band name if dash is present
+dash_test=$( echo ${bandIdentifier} | grep "-" )
+if [[ "${dash_test}" != "" ]] ; then
+    bandIdentifier=\'${bandIdentifier}\'
+fi
 
 #sets the output filename
 snap_request_filename="${TMPDIR}/$( uuidgen ).xml"
@@ -2213,6 +2587,13 @@ local inputDIM=$1
 local bandIdentifier=$2
 local outBandName=$3
 local outputProd=$4
+
+# put '' in band name if dash is present
+dash_test=$( echo ${bandIdentifier} | grep "-" )
+if [[ "${dash_test}" != "" ]] ; then
+    bandIdentifier=\'${bandIdentifier}\'
+fi
+
 
 #sets the output filename
 snap_request_filename="${TMPDIR}/$( uuidgen ).xml"
