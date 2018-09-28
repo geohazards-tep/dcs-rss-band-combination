@@ -3,7 +3,7 @@ import gdal, gdalconst
 import os
 
 # See http://www.gdal.org/classVRTRasterBand.html#a155a54960c422941d3d5c2853c6c7cef
-def hist_skip(inFname, bandIndex, percentileMin, percentileMax, outFname, nbuckets=1000):
+def hist_skip(inFname, bandIndex, percentileMin, percentileMax, outFname, nbuckets=10000):
   """
   Given a filename, finds approximate percentile values and provides the
   gdal_translate invocation required to create an 8-bit PNG.
@@ -22,7 +22,9 @@ def hist_skip(inFname, bandIndex, percentileMin, percentileMax, outFname, nbucke
   band = src.GetRasterBand(int(bandIndex))
   percentiles = [ float(percentileMin), float(percentileMax) ]
   # Use GDAL to find the min and max
-  (lo, hi, avg, std) = band.GetStatistics(True, True)
+  (lo, hi) = band.ComputeRasterMinMax(False)
+  print "lo="+str(lo)
+  print "hi="+str(hi)	
 
   # Use GDAL to calculate a big histogram
   rawhist = band.GetHistogram(min=lo, max=hi, buckets=nbuckets)
@@ -71,7 +73,12 @@ def hist_skip(inFname, bandIndex, percentileMin, percentileMax, outFname, nbucke
     print "percentile (out of 100%),value at percentile"
     for (p, v) in zip(percentiles, vals):
       print "%f,%f" % (p, v)
-  
+
+  if vals[1] == vals[2]:
+    print "percentile "+str(percentileMin)+" is equal to percentile "+str(percentileMax)
+    print "substituting percentile "+str(percentileMax)+" with maximum value"
+    vals[2] = vals[3]
+
   # Print out gdal_calc command
   gdalCalcCommand="gdal_calc.py -A "+inFname+" --A_band="+bandIndex+" --calc="+'"'+str(vals[1])+"*logical_and(A>0, A<="+str(vals[1])+")+A*(A>"+str(vals[1])+")"+'"'+" --outfile=gdal_calc_result.tif --NoDataValue=0"
   print "running  "+gdalCalcCommand
