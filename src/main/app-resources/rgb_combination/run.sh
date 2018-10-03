@@ -334,11 +334,20 @@ function main ()
     outputRGB_PNG=${OUTPUTDIR}/RGB.png
     outputRGB_Prop=${OUTPUTDIR}/RGB.properties
     
-    # create full resolution tif image with Red=B1 Green=B2 Blue=B3 due to given order within stacking operation
-    gdal_translate -ot Byte -of GTiff -b ${stackOrderRGB[0]} -b ${stackOrderRGB[1]} -b ${stackOrderRGB[2]} -scale -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" ${outProdTIF} temp-outputfile.tif 
-    returnCode=$?
-    [ $returnCode -eq 0 ] || return ${ERR_CONVERT}
-    rm ${outProdTIF}
+    # histogram skip (percentiles from 2 to 96) on separated bands
+    python $_CIOP_APPLICATION_PATH/rgb_combination/hist_skip_no_zero.py "${outProdTIF}" "${stackOrderRGB[0]}" 2 96 "temp-outputfile_band_r.tif"
+    python $_CIOP_APPLICATION_PATH/rgb_combination/hist_skip_no_zero.py "${outProdTIF}" "${stackOrderRGB[1]}" 2 96 "temp-outputfile_band_g.tif"
+    python $_CIOP_APPLICATION_PATH/rgb_combination/hist_skip_no_zero.py "${outProdTIF}" "${stackOrderRGB[2]}" 2 96 "temp-outputfile_band_b.tif"
+    gdal_merge.py -separate -n 0 -a_nodata 0 -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" "temp-outputfile_band_r.tif" "temp-outputfile_band_g.tif" "temp-outputfile_band_b.tif" -o temp-outputfile.tif
+    #remove temp files
+    rm temp-outputfile_band_r.tif temp-outputfile_band_g.tif temp-outputfile_band_b.tif
+
+    ## create full resolution tif image with Red=B1 Green=B2 Blue=B3 due to given order within stacking operation
+    #gdal_translate -ot Byte -of GTiff -b ${stackOrderRGB[0]} -b ${stackOrderRGB[1]} -b ${stackOrderRGB[2]} -scale -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" ${outProdTIF} temp-outputfile.tif 
+    #returnCode=$?
+    #[ $returnCode -eq 0 ] || return ${ERR_CONVERT}
+    #rm ${outProdTIF}    
+
     #re-projection
     gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" temp-outputfile.tif ${outputRGB_TIF}
     returnCode=$?
