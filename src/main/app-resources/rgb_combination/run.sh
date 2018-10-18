@@ -342,14 +342,8 @@ function main ()
     #remove temp files
     rm temp-outputfile_band_r.tif temp-outputfile_band_g.tif temp-outputfile_band_b.tif
 
-    ## create full resolution tif image with Red=B1 Green=B2 Blue=B3 due to given order within stacking operation
-    #gdal_translate -ot Byte -of GTiff -b ${stackOrderRGB[0]} -b ${stackOrderRGB[1]} -b ${stackOrderRGB[2]} -scale -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" ${outProdTIF} temp-outputfile.tif 
-    #returnCode=$?
-    #[ $returnCode -eq 0 ] || return ${ERR_CONVERT}
-    #rm ${outProdTIF}    
-
     #re-projection
-    gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" temp-outputfile.tif ${outputRGB_TIF}
+    gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" temp-outputfile.tif ${outputRGB_TIF}
     returnCode=$?
     [ $returnCode -eq 0 ] || return ${ERR_CONVERT}
     #Remove temporary file
