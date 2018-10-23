@@ -35,6 +35,8 @@ ERR_BAND_SELECT=20
 ERR_BAND_ID=21
 ERR_AOI=22
 ERR_GDAL=23
+ERR_GET_BANDS_NUM=24
+ERR_GET_PIX_SPACING_TIF=25
 
 # add a trap to exit gracefully
 function cleanExit ()
@@ -43,31 +45,33 @@ function cleanExit ()
     local msg=""
 
     case ${retval} in
-        ${SUCCESS})               msg="Processing successfully concluded";;
-        ${SNAP_REQUEST_ERROR})    msg="Could not create snap request file";;
-        ${ERR_SNAP})              msg="SNAP failed to process";;
-        ${ERR_NOPROD})            msg="No product reference input provided";;
-        ${ERR_NORETRIEVEDPROD})   msg="Product not correctly downloaded";;
-        ${ERR_GETMISSION})        msg="Error while retrieving mission name from product name or mission data not supported";;
-        ${ERR_GETDATA})           msg="Error while discovering product";;
-        ${ERR_WRONGINPUTNUM})     msg="Number of input RED product not equal to 1";;
-        ${ERR_GETPRODTYPE})       msg="Error while retrieving product type info from input product name";;
-        ${ERR_WRONGPRODTYPE})     msg="Product type not supported";;
-        ${ERR_GETPRODMTD})        msg="Error while retrieving metadata file from product";;
-        ${ERR_PCONVERT})          msg="PCONVERT failed to process";;
-        ${ERR_GETPIXELSPACING})   msg="Error while retrieving pixel spacing";;
-        ${ERR_CALLPREPROCESS})    msg="Error while calling pre processing function";;
-        ${ERR_PREPROCESS})        msg="Error during pre processing execution";;
-        ${ERR_UNPACKING})         msg="Error unpacking input product";;
-        ${ERR_TARGET_RES_PROD})   msg="Target resolution product is not equal to one of selected input R,G,B product";;
-        ${ERR_BAND_LIST})   	  msg="Error while retrieving the list of contained bands within product";;
-	${ERR_WRONGPOLARIZATION}) msg="Wrong polarisation retrieved from input product name";;
-        ${ERR_BAND_ID_GET})	  msg="Error while retrieving band identifier from product";;
-	${ERR_BAND_SELECT})       msg="Error while extracting band from pre-processed product";;
-        ${ERR_BAND_ID})       	  msg="Band index not valid for input product (it exceeds the number of contained bands)";;
-        ${ERR_AOI})               msg="Error: input SubsetBoundingBox has no intersection with input data";;
-        ${ERR_GDAL})              msg="Error while executing a GDAL bin";;
-        *)                        msg="Unknown error";;
+        ${SUCCESS})                     msg="Processing successfully concluded";;
+        ${SNAP_REQUEST_ERROR})          msg="Could not create snap request file";;
+        ${ERR_SNAP})                    msg="SNAP failed to process";;
+        ${ERR_NOPROD})                  msg="No product reference input provided";;
+        ${ERR_NORETRIEVEDPROD})         msg="Product not correctly downloaded";;
+        ${ERR_GETMISSION})              msg="Error while retrieving mission name from product name or mission data not supported";;
+        ${ERR_GETDATA})                 msg="Error while discovering product";;
+        ${ERR_WRONGINPUTNUM})           msg="Number of input RED product not equal to 1";;
+        ${ERR_GETPRODTYPE})             msg="Error while retrieving product type info from input product name";;
+        ${ERR_WRONGPRODTYPE})           msg="Product type not supported";;
+        ${ERR_GETPRODMTD})              msg="Error while retrieving metadata file from product";;
+        ${ERR_PCONVERT})                msg="PCONVERT failed to process";;
+        ${ERR_GETPIXELSPACING})         msg="Error while retrieving pixel spacing";;
+        ${ERR_CALLPREPROCESS})          msg="Error while calling pre processing function";;
+        ${ERR_PREPROCESS})              msg="Error during pre processing execution";;
+        ${ERR_UNPACKING})               msg="Error unpacking input product";;
+        ${ERR_TARGET_RES_PROD})         msg="Target resolution product is not equal to one of selected input R,G,B product";;
+        ${ERR_BAND_LIST})   	        msg="Error while retrieving the list of contained bands within product";;
+	${ERR_WRONGPOLARIZATION})       msg="Wrong polarisation retrieved from input product name";;
+        ${ERR_BAND_ID_GET})	        msg="Error while retrieving band identifier from product";;
+	${ERR_BAND_SELECT})             msg="Error while extracting band from pre-processed product";;
+        ${ERR_BAND_ID})       	        msg="Band index not valid for input product (it exceeds the number of contained bands)";;
+        ${ERR_AOI})                     msg="Error: input SubsetBoundingBox has no intersection with input data";;
+        ${ERR_GDAL})                    msg="Error while executing a GDAL bin";;
+        ${ERR_GET_BANDS_NUM})           msg="Error while getting number of bands of TIF product";;
+        ${ERR_GET_PIX_SPACING_TIF})     msg="Error while getting pixel spacing from TIF product";;
+        *)                              msg="Unknown error";;
     esac
 
    [ ${retval} -ne 0 ] && ciop-log "ERROR" "Error ${retval} - ${msg}, processing aborted" || ciop-log "INFO" "${msg}"
@@ -148,7 +152,7 @@ function check_product_type() {
       # log the value, it helps debugging.
       # the log entry is available in the process stderr
       ciop-log "DEBUG" "Retrieved product type: ${prodTypeName}"
-      if [[ "$prodTypeName" != "L1TP" ]] && [[ "$prodTypeName" != "L1T" ]]; then
+      if [[ "$prodTypeName" != "L1TP" ]] && [[ "$prodTypeName" != "L1T" ]] && [[ "$prodTypeName" != "L1GT" ]] ; then
           return $ERR_WRONGPRODTYPE
       fi
   fi
@@ -163,7 +167,7 @@ function check_product_type() {
 
   if [ ${mission} = "Kompsat-2" ]; then
       if [[ -d "${retrievedProduct}" ]]; then
-          prodTypeName=$(ls ${retrievedProduct}/*.tif | head -1 | sed -n -e 's|^.*_\(.*\).tif$|\1|p')
+          prodTypeName=$(find ${retrievedProduct} -name '*.tif' | head -1 | sed -n -e 's|^.*_\(.*\).tif$|\1|p')
           [[ -z "$prodTypeName" ]] && ciop-log "ERROR" "Error prodTypeName is empty"
       else
           ciop-log "ERROR" "KOMPSAT-2 product was not unzipped"
@@ -180,9 +184,9 @@ function check_product_type() {
   fi
 
   if [[ "${mission}" == "SPOT-6" ]] || [[ "${mission}" == "SPOT-7"  ]]; then
-        spot_xml=$(find ${retrievedProduct}/ -name 'DIM_SPOT?_MS_*.XML' | head -1 | sed 's|^.*\/||')
-        prodTypeName="${spot_xml:29:3}"
-        [[ "$prodTypeName" != "ORT" ]] && return $ERR_WRONGPRODTYPE
+        spot_xml=$(find ${retrievedProduct}/ -name 'DIM_SPOT?_*MS_*.XML')
+        prodTypeName=$(sed -n -e 's|^.*<DATASET_TYPE>\(.*\)</DATASET_TYPE>$|\1|p' ${spot_xml})
+        [[ "$prodTypeName" != "RASTER_ORTHO" ]] && return $ERR_WRONGPRODTYPE
   fi
 
   if [[ "${mission}" == "Kompsat-5" ]]; then
@@ -201,7 +205,7 @@ function check_product_type() {
           returnCode=$?
           [ $returnCode -eq 0 ] || return ${ERR_GETPRODTYPE}
           # find the fisrt band tif product
-          vrss1_b1=$(find ./ -name '*_1.tif')
+          vrss1_b1=$(find . -name '*_1.tif')
           [[ "${vrss1_b1}" == "" ]] && return ${ERR_GETPRODTYPE}
           dir_untar_vrss1=$(dirname ${vrss1_b1})
           rm -r -f ${dir_untar_vrss1}
@@ -213,6 +217,72 @@ function check_product_type() {
       vrss1_b1=$(basename ${vrss1_b1})
       l2b_test=$(echo "${vrss1_b1}" | grep "L2B")
       [[ "${l2b_test}" != "" ]] && prodTypeName="L2B" ||  return $ERR_WRONGPRODTYPE
+  fi
+
+  if [[ "${mission}" == "RapidEye" ]]; then
+      # prodcut name assumed like TTTTTTT_DDDD-DD-DD_RE?_LL_HHHHHH
+      # where LL is the product level
+      prodTypeName=${productName:23:2}
+      [[ "$prodTypeName" != "3A" ]] && return $ERR_WRONGPRODTYPE
+  fi
+
+  if [[ "${mission}" == "GF2" ]]; then
+      filename="${retrievedProduct##*/}"; ext="${filename#*.}"
+      # assumption is that the product has .tar extension
+      if  [[ "$ext" == "tar" ]]; then
+          ciop-log "INFO" "Running command: tar xf $retrievedProduct *MSS2.xml"
+          tar xf $retrievedProduct *MSS2.xml
+          returnCode=$?
+          [ $returnCode -eq 0 ] || return ${ERR_GETPRODTYPE}
+          prodTypeName=$(sed -n -e 's|^.*<ProductLevel>\(.*\)</ProductLevel>$|\1|p' *MSS2.xml)
+          rm -f *MSS2.xml
+      else
+          ciop-log "ERROR" "Failed to get product type from : ${retrievedProduct}"
+          ciop-log "ERROR" "Product extension not equal to the expected"
+          return $ERR_WRONGPRODTYPE
+      fi
+      [[ "$prodTypeName" != "LEVEL2A" ]] && return $ERR_WRONGPRODTYPE
+  fi
+
+  if [[ "${mission}" == "Alos-2" ]]; then
+      prodTypeName=""
+      # check if ALOS2 product is a folder
+      if [[ -d "${retrievedProduct}" ]]; then
+          # check if ALOS2 folder contains a zip file
+          ALOS_ZIP=$(ls ${retrievedProduct} | egrep '^.*ALOS2.*.zip$')
+          # if doesn't contain a zip it should be already uncompressed -> search summary file into the folder
+	  if [[ -z "$ALOS_ZIP" ]]; then
+	      prodTypeName="$( cat ${retrievedProduct}/summary.txt | sed -n -e 's|^.*_ProcessLevel=\"\(.*\)\".*$|\1|p')"
+ 	    # extract summary file from compressed archive 
+          else
+              prodTypeName="$(unzip -p ${retrievedProduct}/$ALOS_ZIP summary.txt | sed -n -e 's|^.*_ProcessLevel=\"\(.*\)\".*$|\1|p')"
+          fi
+     fi
+     [[ -z "$prodTypeName" ]] && ciop-log "ERROR" "Failed to get product type from : $retrievedProduct"
+     [[ "$prodTypeName" != "1.5" ]] && return $ERR_WRONGPRODTYPE
+  fi
+
+  if [[ "${mission}" == "Kanopus-V" ]]; then
+      mss_test=$(echo "${productName}" | grep "MSS")
+      [[ "$mss_test" != "" ]] && prodTypeName="MSS"  || return $ERR_WRONGPRODTYPE
+  fi
+
+  if [[ "${mission}" == "Resurs-P" ]]; then
+      prodTypeName="MSS"
+  fi
+
+  if [[ "${mission}" == "TerraSAR-X" ]]; then
+      ciop-log "INFO" "Retrieving product type from TerraSAR-X product: ${retrievedProduct}"
+      if [[ -d "${retrievedProduct}" ]]; then
+          tsx_xml=$(find ${retrievedProduct}/ -name '*SAR*.xml' | head -1 | sed 's|^.*\/||')
+	  prodTypeName="${tsx_xml:10:3}"
+      elif [[ "${retrievedProduct##*.}" == "tar" ]]; then
+          prodTypeName=$(tar tvf ${retrievedProduct} | sed -n -e 's|^.*\/||' -e 's|^.*_SAR__\(...\)_.*.xml$|\1|p')
+      else
+          ciop-log "ERROR" "Failed to get product type from : ${retrievedProduct}"
+	  return $ERR_WRONGPRODTYPE
+      fi
+      [[ "$prodTypeName" != "EEC" ]] && return $ERR_WRONGPRODTYPE
   fi
 
   echo ${prodTypeName}
@@ -249,50 +319,63 @@ function get_data() {
 
 # function that retrieves the mission data identifier from the product name
 function mission_prod_retrieval(){
-        local mission=""
-        local retrievedProduct=$1
-        local prod_basename=$( basename "$retrievedProduct" ) 
+    local mission=""
+    local retrievedProduct=$1
+    local prod_basename=$( basename "$retrievedProduct" )
 
-        prod_basename_substr_3=${prod_basename:0:3}
-        prod_basename_substr_4=${prod_basename:0:4}
-        prod_basename_substr_5=${prod_basename:0:5}
-        [ "${prod_basename_substr_3}" = "S1A" ] && mission="Sentinel-1"
-        [ "${prod_basename_substr_3}" = "S1B" ] && mission="Sentinel-1"
-        [ "${prod_basename_substr_3}" = "S2A" ] && mission="Sentinel-2"
-        [ "${prod_basename_substr_3}" = "S2B" ] && mission="Sentinel-2"
-        [ "${prod_basename_substr_3}" = "K5_" ] && mission="Kompsat-5"
-        [ "${prod_basename_substr_3}" = "K3_" ] && mission="Kompsat-3"
-        [ "${prod_basename_substr_3}" = "LC8" ] && mission="Landsat-8"
-        [ "${prod_basename_substr_4}" = "LS08" ] && mission="Landsat-8"
-        [ "${prod_basename_substr_4}" = "MSC_" ] && mission="Kompsat-2"
-        [ "${prod_basename_substr_4}" = "FCGC" ] && mission="Pleiades"
-        [ "${prod_basename_substr_5}" = "CHART" ] && mission="Pleiades"
-        [ "${prod_basename_substr_5}" = "U2007" ] && mission="UK-DMC2"
-        [ "${prod_basename_substr_5}" = "ORTHO" ] && mission="UK-DMC2"
-        ukdmc2_test=$(echo "${prod_basename}" | grep "UK-DMC-2")
-        [ "${ukdmc2_test}" = "" ] || mission="UK-DMC-2"
-        [ "${prod_basename_substr_4}" = "RS2_" ] && mission="Radarsat-2"
-        spot6_test=$(echo "${prod_basename}" | grep "SPOT6")
-        [[ -z "${spot6_test}" ]] && spot6_test=$(ls "${retrievedProduct}" | grep "SPOT6")
-        [ "${spot6_test}" = "" ] || mission="SPOT-6"
-        spot7_test=$(echo "${prod_basename}" | grep "SPOT7")
-        [[ -z "${spot7_test}" ]] && spot7_test=$(ls "${retrievedProduct}" | grep "SPOT7")
-        [ "${spot7_test}" = "" ] || mission="SPOT-7"
-        vrss1_test_1=$(echo "${prod_basename}" | grep "VRSS1")
-        vrss1_test_2=$(echo "${prod_basename}" | grep "VRSS-1")
-        if [[ "${vrss1_test_1}" != "" ]] || [[ "${vrss1_test_2}" != "" ]]; then
-            mission="VRSS1"
-        fi
-	#[ "${prod_basename}" = "Resurs-P" ] && mission="Resurs-P"
-        #[ "${prod_basename}" = "Kanopus-V" ] && mission="Kanopus-V"
-        #alos2_test=$(echo "${prod_basename}" | grep "ALOS2")
-        #[ "${alos2_test}" = "" ] || mission="Alos-2"
+    prod_basename_substr_3=${prod_basename:0:3}
+    prod_basename_substr_4=${prod_basename:0:4}
+    prod_basename_substr_5=${prod_basename:0:5}
+    prod_basename_substr_9=${prod_basename:0:9}
+    prod_basename_substr_8=${prod_basename:0:8}
+    [ "${prod_basename_substr_3}" = "S1A" ] && mission="Sentinel-1"
+    [ "${prod_basename_substr_3}" = "S1B" ] && mission="Sentinel-1"
+    [ "${prod_basename_substr_3}" = "S2A" ] && mission="Sentinel-2"
+    [ "${prod_basename_substr_3}" = "S2B" ] && mission="Sentinel-2"
+    [ "${prod_basename_substr_3}" = "K5_" ] && mission="Kompsat-5"
+    [ "${prod_basename_substr_3}" = "K3_" ] && mission="Kompsat-3"
+    [ "${prod_basename_substr_3}" = "LC8" ] && mission="Landsat-8"
+    [ "${prod_basename_substr_4}" = "LS08" ] && mission="Landsat-8"
+    [ "${prod_basename_substr_4}" = "MSC_" ] && mission="Kompsat-2"
+    [ "${prod_basename_substr_4}" = "FCGC" ] && mission="Pleiades"
+    [ "${prod_basename_substr_5}" = "CHART" ] && mission="Pleiades"
+    [ "${prod_basename_substr_5}" = "U2007" ] && mission="UK-DMC2"
+    [ "${prod_basename_substr_5}" = "ORTHO" ] && mission="UK-DMC2"
+    ukdmc2_test=$(echo "${prod_basename}" | grep "UK-DMC-2")
+    [ "${ukdmc2_test}" = "" ] || mission="UK-DMC-2"
+    if [[ "${prod_basename_substr_8}" == "RESURS_P" ]] || [[ "${prod_basename_substr_8}" == "RESURS-P" ]] || [[ "${prod_basename_substr_8}" == "Resurs-P" ]] || [[ "${prod_basename_substr_8}" == "Resurs_P" ]] ; then
+        mission="Resurs-P"
+    fi
+    if [[ "${prod_basename_substr_9}" == "KANOPUS_V" ]] || [[ "${prod_basename_substr_9}" == "KANOPUS-V" ]] || [[ "${prod_basename_substr_9}" == "Kanopus-V" ]] || [[ "${prod_basename_substr_9}" == "Kanopus_V" ]] ; then 
+        mission="Kanopus-V"
+    fi
+    alos2_test=$(echo "${prod_basename}" | grep "ALOS2")
+    [[ -z "${alos2_test}" ]] && alos2_test=$(ls "${retrievedProduct}" | grep "ALOS2")
+    [ "${alos2_test}" = "" ] || mission="Alos-2"
+    spot6_test=$(echo "${prod_basename}" | grep "SPOT6")
+    [[ -z "${spot6_test}" ]] && spot6_test=$(ls "${retrievedProduct}" | grep "SPOT6")
+    [ "${spot6_test}" = "" ] || mission="SPOT-6"
+    spot7_test=$(echo "${prod_basename}" | grep "SPOT7")
+    [[ -z "${spot7_test}" ]] && spot7_test=$(ls "${retrievedProduct}" | grep "SPOT7")
+    [ "${spot7_test}" = "" ] || mission="SPOT-7"
+    [ "${prod_basename_substr_3}" = "SO_" ] && mission="TerraSAR-X"
+    [ "${prod_basename_substr_4}" = "dims" ] && mission="TerraSAR-X"
+    [ "${prod_basename_substr_4}" = "RS2_" ] && mission="Radarsat-2"
+    [ "${prod_basename_substr_3}" = "GF2" ] && mission="GF2"
+    rapideye_test=${prod_basename:19:2}
+    [ "${rapideye_test}" = "RE" ] && mission="RapidEye"
+    vrss1_test_1=$(echo "${prod_basename}" | grep "VRSS1")
+    vrss1_test_2=$(echo "${prod_basename}" | grep "VRSS-1")
+    if [[ "${vrss1_test_1}" != "" ]] || [[ "${vrss1_test_2}" != "" ]]; then
+        mission="VRSS1"
+    fi
 
-        if [ "${mission}" != "" ] ; then
-            echo ${mission}
-        else
-            return ${ERR_GETMISSION}
-        fi
+    if [ "${mission}" != "" ] ; then
+        echo ${mission}
+    else
+        return ${ERR_GETMISSION}
+    fi
+
 }
 
 
@@ -371,7 +454,7 @@ case "$mission" in
             ;;
 
         SPOT-[6-7])
-            spot_xml=$(find ${retrievedProduct}/ -name 'DIM_SPOT?_MS_*.XML' )
+            spot_xml=$(find ${retrievedProduct}/ -name 'DIM_SPOT?_*MS_*.XML' )
             pixSpac=$( cat ${spot_xml} | grep RESAMPLING_SPACING | sed -n -e 's|^.*<RESAMPLING_SPACING .*>\(.*\)</RESAMPLING_SPACING>|\1|p' )
             echo  $pixSpac | awk '{ print sprintf("%.9f", $1); }'
             ;;
@@ -383,8 +466,125 @@ case "$mission" in
             ;;
 
         "VRSS1")
-            product_xml=$(find ${retrievedProduct}/ -name 'VRSS*_L2B_*[0-9].xml')
-            pixSpac=$( cat ${product_xml} | grep pixelSpacing | sed -n -e 's|^.*<pixelSpacing>\(.*\)</pixelSpacing>|\1|p' )
+            filename="${retrievedProduct##*/}"; ext="${filename#*.}"
+            # assumption is that the product has .tar extension or is already uncompressed
+            if  [[ "$ext" == "tar" ]]; then
+            # if tar uncompress the product
+                ciop-log "INFO" "Running command: tar xf $retrievedProduct"
+                tar xf $retrievedProduct
+                returnCode=$?
+                [ $returnCode -eq 0 ] || return ${ERR_GETPIXELSPACING}
+                # find the metadata file
+                product_xml=$(find . -name 'VRSS*_L2B_*[0-9].xml')
+                [[ "${product_xml}" == "" ]] && return ${ERR_GETPIXELSPACING}
+                pixSpac=$( cat ${product_xml} | grep pixelSpacing | sed -n -e 's|^.*<pixelSpacing>\(.*\)</pixelSpacing>|\1|p' )
+                dir_untar_product_xml=$(dirname ${product_xml})
+                rm -r -f ${dir_untar_product_xml}
+            else
+                product_xml=$(find ${retrievedProduct}/ -name 'VRSS*_L2B_*[0-9].xml')
+                [[ "${product_xml}" == "" ]] && return ${ERR_GETPIXELSPACING}
+                pixSpac=$( cat ${product_xml} | grep pixelSpacing | sed -n -e 's|^.*<pixelSpacing>\(.*\)</pixelSpacing>|\1|p' )
+            fi
+            echo  $pixSpac | awk '{ print sprintf("%.9f", $1); }'
+            ;;
+
+        "RapidEye")
+            echo 5
+	    ;;
+
+	"GF2")
+	    echo 3.2
+	    ;;
+
+        "Alos-2")
+            if [[ -d "${retrievedProduct}" ]]; then
+                ALOS_ZIP=$(ls ${retrievedProduct} | egrep '^.*ALOS2.*.zip$')
+            fi
+            if [[ -z "$ALOS_ZIP" ]] ; then
+            # if doesn't contain a zip it should be already uncompressed
+                pixSpac="$(cat ${retrievedProduct}/summary.txt | sed -n -e 's|^.*_PixelSpacing=\"\(.*\)\".*$|\1|p')"
+            # get pixel spacing from zipped archive
+            else
+                pixSpac="$(unzip -p ${retrievedProduct}/$ALOS_ZIP summary.txt | sed -n -e 's|^.*_PixelSpacing=\"\(.*\)\".*$|\1|p')"
+                rm summary.txt
+            fi
+            echo  $pixSpac | awk '{ print sprintf("%.9f", $1); }'
+            ;;
+
+        "Kanopus-V")
+            tif_file=$(find ${retrievedProduct} -name '*.tiff')
+            tif2check=""
+            # check if there are more than one tif (case when also the panchromatic product is present)
+            tifProdArr=($tif_file)
+            tifProdArr_num=${#tifProdArr[@]}
+            if [ $tifProdArr_num -eq 0 ]; then
+                ciop-log "ERROR" "No tif product found"
+                return ${ERR_GETPIXELSPACING}
+            elif [ $tifProdArr_num -eq 1 ]; then
+                tif2check=${tif_file}
+            # get multispectral product as default
+            else
+                let "tifProdArr_num-=1"
+                for idTmp in `seq 0 $tifProdArr_num`;
+                do
+                    num_bands=$(get_bands_num_tif "${tifProdArr[$idTmp]}")
+                    retCode=$?
+                    [ $retCode -eq 0 ] || return ${retCode}
+                    if [ $num_bands -gt 1 ]; then
+                        tif2check=${tifProdArr[$idTmp]}
+                        break
+                    fi
+                done
+            fi
+            pixSpac=$(get_pixel_spacing_tif "${tif2check}")
+            retCode=$?
+            [ $retCode -eq 0 ] && echo ${pixSpac} || return ${retCode}
+	    ;;
+
+        "Resurs-P")
+	    tif_file=$(find ${retrievedProduct} -name '*.tiff')
+            tif2check=""
+            # check if there are more than one tif (case when also the panchromatic product is present)
+            tifProdArr=($tif_file)
+            tifProdArr_num=${#tifProdArr[@]}
+            if [ $tifProdArr_num -eq 0 ]; then
+                ciop-log "ERROR" "No tif product found"
+                return ${ERR_GETPIXELSPACING}
+            elif [ $tifProdArr_num -eq 1 ]; then
+                tif2check=${tif_file}
+            # get multispectral product as default
+            else
+                let "tifProdArr_num-=1"
+                for idTmp in `seq 0 $tifProdArr_num`;
+                do
+                    num_bands=$(get_bands_num_tif "${tifProdArr[$idTmp]}")
+                    retCode=$?
+                    [ $retCode -eq 0 ] || return ${retCode}
+                    if [ $num_bands -gt 1 ]; then
+                        tif2check=${tifProdArr[$idTmp]}
+                        break
+                    fi
+                done
+            fi
+            pixSpac=$(get_pixel_spacing_tif "${tif2check}")
+            retCode=$?
+            [ $retCode -eq 0 ] && echo ${pixSpac} || return ${retCode}
+            ;;
+        
+        "TerraSAR-X")
+            if [[ -d "${retrievedProduct}" ]]; then
+                tsx_xml=$(find ${retrievedProduct}/ -name '*SAR*.xml' | head -1 | sed 's|^.*\/||')
+		pixSpac=$(xmlstarlet sel -t -v "level1Product/productSpecific/geocodedImageInfo/geoParameter/pixelSpacing/easting" ${tsx_xml})
+	    elif [[ "${retrievedProduct##*.}" == "tar" ]]; then
+                mkdir temp
+                tar xf ${retrievedProduct} -C temp
+                tsx_xml=$(find $PWD/temp/ -name '*SAR*.xml')
+                pixSpac=$(xmlstarlet sel -t -v "level1Product/productSpecific/geocodedImageInfo/geoParameter/pixelSpacing/easting" ${tsx_xml})
+                rm -r -f $PWD/temp
+	    else
+		ciop-log "ERROR" "Failed to get pixel spacing from product: ${retrievedProduct}"
+		return $ERR_GETPIXELSPACING
+	    fi
             echo  $pixSpac | awk '{ print sprintf("%.9f", $1); }'
             ;;
 
@@ -468,6 +668,36 @@ case "$mission" in
             return $?
             ;;
 
+        "RapidEye")
+            pre_processing_generic_optical "${prodname}" "${mission}" "${pixelSpacing}" "${pixelSpacingMaster}" "${performCropping}" "${subsettingBoxWKT}"
+            return $?
+            ;; 
+
+	"GF2")
+            pre_processing_generic_optical "${prodname}" "${mission}" "${pixelSpacing}" "${pixelSpacingMaster}" "${performCropping}" "${subsettingBoxWKT}"
+            return $?
+            ;;
+ 
+	"Alos-2")
+	    pre_processing_alos2 "${prodname}" "${pixelSpacing}" "${pixelSpacingMaster}" "${performCropping}" "${subsettingBoxWKT}"
+            return $?
+            ;;
+
+        "Kanopus-V")
+            pre_processing_generic_optical "${prodname}" "${mission}" "${pixelSpacing}" "${pixelSpacingMaster}" "${performCropping}" "${subsettingBoxWKT}"
+            return $?
+            ;;
+
+        "Resurs-P")
+            pre_processing_generic_optical "${prodname}" "${mission}" "${pixelSpacing}" "${pixelSpacingMaster}" "${performCropping}" "${subsettingBoxWKT}"
+            return $?
+            ;;
+        
+        "TerraSAR-X")
+            pre_processing_tsx "${prodname}" "${pixelSpacing}" "${pixelSpacingMaster}" "${performCropping}" "${subsettingBoxWKT}"
+            return $?
+            ;;
+            
         *)
             return "${ERR_CALLPREPROCESS}"
             ;;
@@ -478,9 +708,16 @@ esac
 
 # function that get the list of contained bands depending on the mission data
 function get_band_list(){
-# function call bandListCsv=$( get_band_list "${prodname}" "${mission}" )
+# function call bandListCsv=$( get_band_list "${prodname}" "${mission}" [retrievedProduct])
+# check on input number 
+inputNum=$#
+if [ "$inputNum" -lt 2 ] && [ "$inputNum" -gt 3 ]; then
+    return ${ERR_BAND_LIST}
+fi
 local prodname=$1
 local mission=$2
+local retrievedProduct=""
+[ "$inputNum" -eq 3 ] && retrievedProduct=$3
 local bandListCsv=""
 case "$mission" in
         "Sentinel-1")
@@ -523,7 +760,7 @@ case "$mission" in
             ;;
         
         "Pleiades")
-            bandListCsv="Blue,Green,Red,NIR"
+            bandListCsv="Red,Green,Blue,NIR"
             ;;
       
         "Radarsat-2")
@@ -546,7 +783,7 @@ case "$mission" in
             ;;
 
         SPOT-[6-7])
-            bandListCsv="Blue,Green,Red,NIR"
+            bandListCsv="Red,Green,Blue,NIR"
 	    ;;
 
         "Kompsat-5")
@@ -557,6 +794,145 @@ case "$mission" in
 
         "VRSS1")
             bandListCsv="${prodname}_1,${prodname}_2,${prodname}_3,${prodname}_4"
+            ;;
+	
+        "RapidEye")
+            bandListCsv="Blue,Green,Red,RE,NIR"
+            ;;
+
+	"GF2")
+            bandListCsv="Blue,Green,Red,NIR"
+            ;;
+
+ 	"Alos-2")
+	    hh_test=""
+	    hv_test=""
+	    vh_test=""
+	    vv_test=""
+            if [[ -d "${retrievedProduct}" ]]; then
+                ALOS_ZIP=$(ls ${retrievedProduct} | egrep '^.*ALOS2.*.zip$')
+            fi
+            # if doesn't contain a zip it should be already uncompressed
+            if [[ -z "$ALOS_ZIP" ]] ; then
+                hh_test=$(ls ${retrievedProduct}/*.tif | grep "IMG-HH")
+                hv_test=$(ls ${retrievedProduct}/*.tif | grep "IMG-HV")
+                vh_test=$(ls ${retrievedProduct}/*.tif | grep "IMG-VH")
+                vv_test=$(ls ${retrievedProduct}/*.tif | grep "IMG-VV")
+            # else perform check on zipped archive
+            else
+                hh_test=$(unzip -l ${retrievedProduct}/$ALOS_ZIP | grep "IMG-HH")
+	        hv_test=$(unzip -l ${retrievedProduct}/$ALOS_ZIP | grep "IMG-HV")
+	        vh_test=$(unzip -l ${retrievedProduct}/$ALOS_ZIP | grep "IMG-VH")
+	        vv_test=$(unzip -l ${retrievedProduct}/$ALOS_ZIP | grep "IMG-VV")
+            fi
+            local isQuadPol=0
+	    local isDualPol=0
+	    if [[ "${hh_test}" != "" ]] && [[ "${hv_test}" != "" ]] && [[ "${vh_test}" != "" ]] && [[ "${vv_test}" != "" ]]; then
+	        bandListCsv="HH,HV,VH,VV"
+		isQuadPol=1
+            elif [[ "${hh_test}" != "" ]] && [[ "${hv_test}" != "" ]] && [ $isQuadPol -eq 0 ]; then
+		bandListCsv="HH,HV"
+		isDualPol=1
+	    elif [[ "${vh_test}" != "" ]] && [[ "${vv_test}" != "" ]] && [ $isQuadPol -eq 0 ]; then
+		bandListCsv="VV,VH"
+                isDualPol=1
+	    elif [[ "${vv_test}" != "" ]] && [ $isQuadPol -eq 0 ] && [ $isDualPol -eq 0 ]; then
+		bandListCsv="VV"
+	    elif [[ "${hh_test}" != "" ]] && [ $isQuadPol -eq 0 ] && [ $isDualPol -eq 0 ]; then
+		bandListCsv="HH"
+	    fi
+            ;;
+
+        "Kanopus-V")
+            tif_file=$(find ${retrievedProduct} -name '*.tiff')
+            tif2check=""
+            # check if there are more than one tif (case when also the panchromatic product is present)
+            tifProdArr=($tif_file)
+            tifProdArr_num=${#tifProdArr[@]}
+            if [ $tifProdArr_num -eq 0 ]; then
+                ciop-log "ERROR" "No tif product found"
+                return ${ERR_GETPIXELSPACING}
+            elif [ $tifProdArr_num -eq 1 ]; then
+                tif2check=${tif_file}
+            # get multispectral product as default
+            else
+                let "tifProdArr_num-=1"
+                for idTmp in `seq 0 $tifProdArr_num`;
+                do
+                    num_bands=$(get_bands_num_tif "${tifProdArr[$idTmp]}")
+                    retCode=$?
+                    [ $retCode -eq 0 ] || return ${retCode}
+                    if [ $num_bands -gt 1 ]; then
+                        tif2check=${tifProdArr[$idTmp]}
+                        break
+                    fi
+                done
+            fi
+            bandsNum=$(get_bands_num_tif "${tif2check}")
+            retCode=$?
+            [ $retCode -eq 0 ] || return ${retCode}
+            if [ $bandsNum -eq 1 ]; then
+                bandListCsv="PAN"
+            elif [ $bandsNum -eq 4 ]; then
+                bandListCsv="Blue,Green,Red,NIR"
+            else
+                return "${ERR_BAND_LIST}"
+            fi
+            ;;
+
+        "Resurs-P")
+            tif_file=$(find ${retrievedProduct} -name '*.tiff')
+            # check if there are more than one tif (case when also the panchromatic product is present)
+            tifProdArr=($tif_file)
+            tifProdArr_num=${#tifProdArr[@]}
+            if [ $tifProdArr_num -eq 0 ]; then
+                ciop-log "ERROR" "No tif product found"
+                return ${ERR_GETPIXELSPACING}
+            elif [ $tifProdArr_num -eq 1 ]; then
+                tif2check=${tif_file}
+            # get multispectral product as default
+            else
+                let "tifProdArr_num-=1"
+                for idTmp in `seq 0 $tifProdArr_num`;
+                do
+                    num_bands=$(get_bands_num_tif "${tifProdArr[$idTmp]}")
+                    retCode=$?
+                    [ $retCode -eq 0 ] || return ${retCode}
+                    if [ $num_bands -gt 1 ]; then
+                        tif2check=${tifProdArr[$idTmp]}
+                        break
+                    fi
+                done
+            fi
+            bandsNum=$(get_bands_num_tif "${tif2check}")
+            retCode=$?
+            [ $retCode -eq 0 ] || return ${retCode} 
+            if [ $bandsNum -eq 1 ]; then
+                bandListCsv="PAN"
+            elif [ $bandsNum -eq 4 ]; then
+                bandListCsv="Blue,Green,Red,NIR"
+            elif [ $bandsNum -eq 5 ]; then
+                bandListCsv="Blue,Green,Red,Red_Edge,NIR"
+            else
+                return "${ERR_BAND_LIST}"
+            fi
+            ;;
+
+        "TerraSAR-X")
+            if [[ -d "${retrievedProduct}" ]]; then
+                tsx_xml=$(find ${retrievedProduct}/ -name '*SAR*.xml' | head -1 | sed 's|^.*\/||')
+                pol=$(xmlstarlet sel -t -v "level1Product/productQuality/rawDataQuality/polarization" ${tsx_xml})
+            elif [[ "${retrievedProduct##*.}" == "tar" ]]; then
+                mkdir temp
+                tar xf ${retrievedProduct} -C temp
+                tsx_xml=$(find $PWD/temp/ -name '*SAR*.xml')
+                pol=$(xmlstarlet sel -t -v "level1Product/productQuality/rawDataQuality/polarization" ${tsx_xml})
+                rm -r -f $PWD/temp
+            else
+                ciop-log "ERROR" "Failed to get band list from product: ${retrievedProduct}"
+                return $ERR_BAND_LIST
+            fi
+            bandListCsv=$pol
             ;;
 
         *)
@@ -1397,9 +1773,9 @@ prodBasename=$(basename ${prodname})
 local imgFile=""
 # Get multispectral image file
 if [ ${mission} = "Pleiades" ]; then 
-    imgFile=$(find ${prodname}/ -name 'IMG_*MS_*.JP2')
+    imgFile=$(find ${prodname}/ -name 'IMG_*MS_*_R1C1.JP2')
 elif [ ${mission} = "SPOT-6" ] || [ ${mission} = "SPOT-7" ]; then
-    imgFile=$(find ${prodname}/ -name 'IMG_SPOT?_MS_*.JP2')
+    imgFile=$(find ${prodname}/ -name 'IMG_SPOT?_*MS_*_R1C1.JP2')
 fi
 # set output calibrated filename
 outputCal="${imgFile##*/}"; outputCal="${outputCal%.JP2}.tif"
@@ -1500,12 +1876,12 @@ else
     if [[ "${test_txt}" != "" ]]; then
         # error due to void intersection between user AOI and data
         [ $DEBUG -eq 1 ] && cat log.txt
-        log.txt
+        rm log.txt
         return $ERR_AOI
     else
         # generic snap-gpt execution error
         [ $DEBUG -eq 1 ] && cat log.txt
-        log.txt
+        rm log.txt
         return $ERR_SNAP
     fi
 fi
@@ -1595,16 +1971,16 @@ elif [ ${mission} = "Kompsat-2" ]; then
         local product2rename=""
         case "$bid" in
         "0")
-            product2rename=$(ls "${prodname}"/MSC_*R_1G.tif)
+            product2rename=$(find "${prodname}" -name 'MSC_*R_1G.tif')
             ;;
         "1")
-            product2rename=$(ls "${prodname}"/MSC_*G_1G.tif)
+            product2rename=$(find "${prodname}" -name 'MSC_*G_1G.tif')
             ;;
         "2")
-            product2rename=$(ls "${prodname}"/MSC_*B_1G.tif)
+            product2rename=$(find "${prodname}" -name 'MSC_*B_1G.tif')
             ;;
         "3")
-            product2rename=$(ls "${prodname}"/MSC_*N_1G.tif)
+            product2rename=$(find "${prodname}" -name 'MSC_*N_1G.tif')
             ;;
         *)
             return "${ERR_PREPROCESS}"
@@ -1650,36 +2026,108 @@ elif [ ${mission} = "VRSS1" ]; then
         # in this case the product name is not common
         # to the base band names ---> rename all bands
         for bix in 1 2 3 4 ;
-        do
-           currentTif=$(ls "${prodname}"/*_"${bix}".tif)
+        do 
+           currentTif=$(find "${prodname}"/ -name *_"${bix}".tif)
            mv ${currentTif} ${prodname}/${prodBasename}_${bix}.tif
            [[ $bix == "1"  ]] && ls ${prodname}/${prodBasename}_${bix}.tif > $tifList || ls ${prodname}/${prodBasename}_${bix}.tif >> $tifList
         done
     else
-        ls "${prodname}"/*_1.tif > $tifList
-        ls "${prodname}"/*_2.tif >> $tifList
-        ls "${prodname}"/*_3.tif >> $tifList
-        ls "${prodname}"/*_4.tif >> $tifList
+        find "${prodname}"/ -name '*_1.tif' > $tifList
+        find "${prodname}"/ -name '*_2.tif' >> $tifList
+        find "${prodname}"/ -name '*_3.tif' >> $tifList
+        find "${prodname}"/ -name '*_4.tif' >> $tifList
     fi 
+elif [ ${mission} = "RapidEye" ]; then
+    prodBasename=$(basename ${prodname})
+    tifProd=$(find ${prodname}/ -name ${prodBasename}.tif)
+    echo ${tifProd} > $tifList
+elif [ ${mission} = "GF2" ]; then
+    filename="${prodname##*/}"; ext="${filename#*.}"
+    # check extension, uncrompress and get product name
+    if [[ "$ext" == "tar" ]]; then
+        ciop-log "INFO" "Extracting $prodname"
+        currentBasename=$(basename $prodname)
+        currentBasename="${currentBasename%%.*}"
+        mkdir -p ${prodname%/*}/${currentBasename}
+        cd ${prodname%/*}
+        tar xf $filename -C ${currentBasename}
+        returnCode=$?
+        [ $returnCode -eq 0 ] || return ${ERR_UNPACKING}
+        prodname=${prodname%/*}/${currentBasename}
+        prodBasename=$(basename ${prodname})
+        # get multispectral tif product
+        mss_product=$(ls "${prodname}"/*MSS2.tiff)
+        echo ${mss_product} > $tifList
+    else
+        return ${ERR_GETDATA}
+    fi
+elif [ ${mission} = "Kanopus-V" ] || [ ${mission} = "Resurs-P" ]; then
+    prodBasename=$(basename ${prodname})
+    tifProd=$(find ${prodname} -name *.tiff)
+    # check if there are more than one tif (case when also the panchromatic product is present)
+    tifProdArr=($tifProd)
+    tifProdArr_num=${#tifProdArr[@]}
+    if [ $tifProdArr_num -eq 0 ]; then
+        ciop-log "ERROR" "No tif product found"
+        return ${ERR_PREPROCESS}
+    elif [ $tifProdArr_num -eq 1 ]; then
+        echo ${tifProd} > $tifList
+    # get multispectral product as default
+    else
+        let "tifProdArr_num-=1"
+        for idTmp in `seq 0 $tifProdArr_num`;
+        do
+            num_bands=$(get_bands_num_tif "${tifProdArr[$idTmp]}")
+            retCode=$?
+            [ $retCode -eq 0 ] || return ${retCode}
+            if [ $num_bands -gt 1 ]; then
+	        echo ${tifProdArr[$idTmp]} > $tifList
+                break
+            fi   
+        done
+    fi
 else
     return ${ERR_PREPROCESS}
 fi
-
+[ $DEBUG -eq 1 ] && echo tifList $tifList
+[ $DEBUG -eq 1 ] && echo tifList content $(cat $tifList)
 inputProdBasenameNoExt=$(basename ${prodname})
-
-for tif in $(cat "${tifList}"); do
-    basenameNoExt=$(basename "$tif")
-    basenameNoExt="${basenameNoExt%.*}"
-    if [ $index -eq 0  ] ; then
-        filesListCSV=$tif
-        echo ${basenameNoExt} > ${targetBandsNamesListTXT}
-    else
-        filesListCSV=$filesListCSV,$tif
-        echo ${basenameNoExt} >> ${targetBandsNamesListTXT}
-    fi
-    let "index=index+1"
-done
-[ $DEBUG -eq 1 ] && echo $filesListCSV
+# customized targetBandsNamesListTXT for RapidEye, GF2, Kanopus-V and Resurs-P (due to 1 Tiff with all bands already embedded)
+if [ ${mission} = "RapidEye" ] || [ ${mission} = "GF2" ] || [ ${mission} = "Kanopus-V" ] || [ ${mission} = "Resurs-P" ]; then
+   filesListCSV=$(cat "${tifList}")
+   # source bands list for
+   tempBandsList=$(get_band_list "${inputProdBasenameNoExt}" "${mission}" "${prodname}" )
+   # convert file list from comma separted values to space separated values
+   tempBandsListSsv=$( echo "${tempBandsList}" | sed 's|,| |g' )
+   # convert ssv to array
+   declare -a tempBandsListArray=(${tempBandsListSsv})
+   tempBandsListArray_num=${#tempBandsListArray[@]}
+   # loop on band names to fill targetBandsNamesListTXT
+   let "tempBandsListArray_num-=1"
+   for indexTemp in `seq 0 $tempBandsListArray_num`;
+       do
+       if [ $indexTemp -eq 0  ] ; then
+           echo ${tempBandsListArray[${indexTemp}]} > ${targetBandsNamesListTXT}
+       else
+           echo ${tempBandsListArray[${indexTemp}]} >> ${targetBandsNamesListTXT}
+       fi
+   done
+# all the other cases loop on the tif files for targetBandsNamesListTXT filling
+else
+    for tif in $(cat "${tifList}"); do
+        basenameNoExt=$(basename "$tif")
+        basenameNoExt="${basenameNoExt%.*}"
+        if [ $index -eq 0  ] ; then
+            filesListCSV=$tif
+            echo ${basenameNoExt} > ${targetBandsNamesListTXT}
+        else
+            filesListCSV=$filesListCSV,$tif
+            echo ${basenameNoExt} >> ${targetBandsNamesListTXT}
+        fi
+        let "index=index+1"
+    done
+fi
+[ $DEBUG -eq 1 ] && echo filesListCSV $filesListCSV
 # number of product equal to the last index value due to how the loop works
 numProd=$index
 # report activity in the log
@@ -1700,6 +2148,15 @@ if [ ${mission} = "Kompsat-2" ] || [ ${mission} = "VRSS1" ] ; then
     [ $? -eq 0 ] || return ${ERR_PCONVERT}
     # remove intermediate GeoTIFF K2 stack
     rm ${outProdStack}.tif   
+# customized processing for RapidEye, GF2, Kanopus-V and Resurs-P because there is no need for merging (1 Tiff with all bands already embedded)
+elif [ ${mission} = "RapidEye" ] || [ ${mission} = "GF2" ] || [ ${mission} = "Kanopus-V" ] || [ ${mission} = "Resurs-P" ] ; then
+    file2convert=$(echo ${filesListCSV})
+    cp ${file2convert} ${outProdStack}.tif
+    # pconvert to convert GeoTIFF to BEAM-DIMAP
+    pconvert -f dim -o ${TMPDIR} ${outProdStack}.tif 
+    [ $? -eq 0 ] || return ${ERR_PCONVERT}
+    # remove intermediate GeoTIFF K2 stack
+    rm ${outProdStack}.tif
 else
     # prepare the SNAP request
     SNAP_REQUEST=$( create_snap_request_stack "${filesListCSV}" "${outProdStack}" "${numProd}" )
@@ -1796,7 +2253,6 @@ fi
 }
 
 
-
 # Pre processing function for Kompsat-5
 function pre_processing_k5() {
 # function call pre_processing_k5 "${prodname}" "${pixelSpacing}" "${pixelSpacingMaster}" "${performCropping}" "${subsettingBoxWKT}"
@@ -1825,7 +2281,7 @@ pconvert -f dim -o ${TMPDIR} ${file2convert}
 # check the exit code
 [ $? -eq 0 ] || return $ERR_SNAP
 # get translated product name
-imgFileDIM=$(find ${TMPDIR} -name '*.dim')
+imgFileDIM=${TMPDIR}/product2convert.dim
 # define output name of DIM product with K5 file converted into dB
 imgFileDIM_dB=${TMPDIR}/${prodBasename}_dB.dim
 ciop-log "INFO" "Preparing SNAP request file for dB scaling"
@@ -1931,12 +2387,12 @@ else
     if [[ "${test_txt}" != "" ]]; then
         # error due to void intersection between user AOI and data
         [ $DEBUG -eq 1 ] && cat log.txt
-        log.txt
+        rm log.txt
         return $ERR_AOI
     else
         # generic snap-gpt execution error
         [ $DEBUG -eq 1 ] && cat log.txt
-        log.txt
+        rm log.txt
         return $ERR_SNAP
     fi
 fi
@@ -1944,8 +2400,375 @@ fi
 }
 
 
+# Pre processing function for Terrasar-X
+function pre_processing_tsx() {
+# function call pre_processing_tsx "${prodname}" "${pixelSpacing}" "${pixelSpacingMaster}" "${performCropping}" "${subsettingBoxWKT}"
+
+inputNum=$#
+[ "$inputNum" -ne 5 ] && return ${ERR_PREPROCESS}
+
+local prodname=$1
+local pixelSpacing=$2
+local pixelSpacingMaster=$3
+local performCropping=$4
+local subsettingBoxWKT=$5
+# find IMAGEDAT dir where tsx product is located
+IMAGEDATA=""
+if [[ -d "${prodname}" ]]; then
+    IMAGEDATA=$(find ${prodname} -name 'IMAGEDATA')
+    if [[ -z "$IMAGEDATA" ]]; then 
+        ciop-log "ERROR" "Failed to get IMAGEDATA dir"
+	return ${ERR_PREPROCESS}
+    fi
+elif [[ "${prodname##*.}" == "tar" ]]; then
+    mkdir tsx_temp 
+    tar xf ${prodname} -C tsx_temp/
+    returnCode=$?
+    [ $returnCode -eq 0 ] || return ${ERR_PREPROCESS}
+    IMAGEDATA=$(find $PWD/tsx_temp/ -name 'IMAGEDATA')
+    if [[ -z "$IMAGEDATA" ]]; then
+        ciop-log "ERROR" "Failed to get IMAGEDATA dir"
+        return ${ERR_PREPROCESS}
+    fi
+fi
+prodBasename=$(basename ${prodname})
+prodBasename="${prodBasename%%.*}"
+local imgFile=""
+imgFile=$(find ${IMAGEDATA}/ -name '*.tif')
+file2convert=${TMPDIR}/product2convert.tif
+# reproject data for correct CRS handling by following snap operators
+gdalwarp -ot UInt16 -srcnodata 0 -dstnodata 0 -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -t_srs EPSG:4326 ${imgFile} ${file2convert}
+# convert tif to beam dimap format
+ciop-log "INFO" "Invoking SNAP-pconvert on the generated request file for tif to dim conversion"
+pconvert -f dim -o ${TMPDIR} ${file2convert}
+# check the exit code
+[ $? -eq 0 ] || return $ERR_SNAP
+#remove temp folder
+rm -r -f tsx_temp
+# get translated product name
+imgFileDIM=${TMPDIR}/product2convert.dim
+# get bands name
+currentBandsList=$( xmlstarlet sel -t -v "/Dimap_Document/Image_Interpretation/Spectral_Band_Info/BAND_NAME" ${imgFileDIM} )
+currentBandsList=(${currentBandsList})
+currentBandsList_num=${#currentBandsList[@]}
+currentBandsListTXT=${TMPDIR}/currentBandsList.txt
+local index=0
+# loop on band names to fill band list
+let "currentBandsList_num-=1"
+for index in `seq 0 $currentBandsList_num`;
+do
+    if [ $index -eq 0  ] ; then
+        echo ${currentBandsList[${index}]} > ${currentBandsListTXT}
+    else
+        echo  ${currentBandsList[${index}]} >> ${currentBandsListTXT}
+    fi
+done
+# loop over known product bands to fill target bands list
+targetBandsNamesListTXT=${TMPDIR}/targetBandsNamesList.txt
+# source bands list for Pleiades
+sourceBandsList=$(get_band_list "${prodBasename}" "TerraSAR-X" "${prodname}")
+# convert band from comma separted values to space separated values
+bandListSsv=$( echo "${sourceBandsList}" | sed 's|,| |g' )
+# convert ssv to array
+declare -a bandListArray=(${bandListSsv})
+# get number of bands
+numBands=${#bandListArray[@]}
+local bid=0
+let "numBands-=1"
+for bid in `seq 0 $numBands`; do
+    if [ $bid -eq 0  ] ; then
+        echo ${bandListArray[$bid]} > ${targetBandsNamesListTXT}
+    else
+        echo ${bandListArray[$bid]} >> ${targetBandsNamesListTXT}
+    fi
+done
+# build request file for rename all the bands contained into the product
+# report activity in the log
+outProdRename=${TMPDIR}/output_renamed_bands
+ciop-log "INFO" "Preparing SNAP request file for bands renaming"
+# prepare the SNAP request
+SNAP_REQUEST=$( create_snap_request_rename_all_bands "${imgFileDIM}" "${currentBandsListTXT}" "${targetBandsNamesListTXT}" "${outProdRename}")
+[ $? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
+[ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST}
+# report activity in the log
+ciop-log "INFO" "Generated request file: ${SNAP_REQUEST}"
+# report activity in the log
+ciop-log "INFO" "Invoking SNAP-gpt on the generated request file bands renaming"
+# invoke the ESA SNAP toolbox
+gpt $SNAP_REQUEST -c "${CACHE_SIZE}" &> /dev/null
+# check the exit code
+[ $? -eq 0 ] || return $ERR_SNAP
+# remove temp calibrated file product in beam dimap
+rm -rf "${imgFileDIM%.dim}.d*"
+
+# use the greter pixel spacing as target spacing (in order to downsample if needed, upsampling always avoided)
+local target_spacing=$( get_greater_pixel_spacing ${pixelSpacing} ${pixelSpacingMaster} )
+# check for resampling operator: to be used only if the resolution is differenet from the current product one
+local performResample=""
+if (( $(bc <<< "$target_spacing != $pixelSpacing") )) ; then
+    performResample="true"
+else
+    performResample="false"
+fi
+outProdBasename=${prodBasename}_pre_proc
+outProd=${OUTPUTDIR_PRE_PROC}/${outProdBasename}
+
+# report activity in the log
+ciop-log "INFO" "Preparing SNAP request file for data pre processing"
+# prepare the SNAP request
+SNAP_REQUEST=$( create_snap_request_rsmpl_rprj_sbs "${outProdRename}.dim" "${performResample}" "${target_spacing}" "${performCropping}" "${subsettingBoxWKT}" "${sourceBandsList}" "${outProd}")
+[ $? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
+[ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST}
+# report activity in the log
+ciop-log "INFO" "Generated request file: ${SNAP_REQUEST}"
+# report activity in the log
+ciop-log "INFO" "Invoking SNAP-gpt on the generated request file for data pre processing"
+# invoke the ESA SNAP toolbox
+gpt $SNAP_REQUEST -c "${CACHE_SIZE}" 2> log.txt
+returncode=$?
+test_txt=$(cat log.txt | grep "No intersection")
+rm -rf ${outProdRename}.d* ${targetBandsNamesListTXT}
+# catch proper error if any
+if [ $returncode -eq 0 ] ; then
+    # no error case
+    rm log.txt
+    return 0
+else
+    if [[ "${test_txt}" != "" ]]; then
+        # error due to void intersection between user AOI and data
+        [ $DEBUG -eq 1 ] && cat log.txt
+        rm log.txt
+        return $ERR_AOI
+    else
+        # generic snap-gpt execution error
+        [ $DEBUG -eq 1 ] && cat log.txt
+        rm log.txt
+        return $ERR_SNAP
+    fi
+fi
+
+}
+
+
+# Pre processing function for alos2
+function pre_processing_alos2() {
+# function call pre_processing_alos2 "${prodname}" "${pixelSpacing}" "${pixelSpacingMaster}" "${performCropping}" "${subsettingBoxWKT}"
+
+inputNum=$#
+[ "$inputNum" -ne 5 ] && return ${ERR_PREPROCESS}
+
+local prodname=$1
+local pixelSpacing=$2
+local pixelSpacingMaster=$3
+local performCropping=$4
+local subsettingBoxWKT=$5
+local index=0
+
+#check on alos product format 
+if [[ -d "${prodname}" ]]; then
+    ALOS_ZIP=$(ls ${prodname} | egrep '^.*ALOS2.*.zip$')
+fi
+local alos2unzip=""
+local prodBasename=""
+# if doesn't contain a zip it should be already uncompressed
+if [[ -z "$ALOS_ZIP" ]] ; then
+    alos2unzip=${prodname}
+    prodBasename=$(basename ${prodname})
+# else uncompress zipped archive
+else
+    # get basename from zip filename
+    ALOS_ZIP_basename=$(basename ${ALOS_ZIP})
+    prodBasename="${ALOS_ZIP_basename%%.*}"
+    alos2unzip=${TMPDIR}/alos2unzip
+    mkdir ${alos2unzip}
+    unzip $ALOS_ZIP -d ${alos2unzip}
+fi
+
+# source bands list
+sourceBandsList_alos2=$(get_band_list "${prodBasename}" "${mission}" "${prodname}")
+# convert band from comma separted values to space separated values
+bandListSsv_alos2=$( echo "${sourceBandsList_alos2}" | sed 's|,| |g' )
+# convert ssv to array
+declare -a bandListArray_alos2=(${bandListSsv_alos2})
+# get number of bands
+numBands=${#bandListArray_alos2[@]}
+let "numBandsLoop=numBands-1"
+local bid=0
+# get tif list in a space separted value manner
+local tifListSsv=""
+for bid in `seq 0 $numBandsLoop`; do
+    currentTifName=$( find ${alos2unzip}/ -name "IMG-""${bandListArray_alos2[$bid]}""*.tif")
+    case "$bid" in
+	"0")
+            tifListSsv=${currentTifName}
+            ;;
+        *)
+            tifListSsv="${tifListSsv} ${currentTifName}"
+            ;;
+    esac
+done
+tifListArray=(${tifListSsv})
+tifListArray_num=${#tifListArray[@]}
+let "array_num=tifListArray_num-1"
+# loop to perform linear2dB conversion and stacking
+lin2dbFolder=${TMPDIR}/lin2db
+mkdir ${lin2dbFolder}
+tifListDbSsv=""
+for index in `seq 0 $array_num`;
+do
+    currentTif=${tifListArray[$index]}
+    currentTifBasename=$(basename $currentTif)
+    currentTif_dB=${lin2dbFolder}/${currentTifBasename}
+    # reprojection becasue alos 2 crs is not well recognized by snap
+    ciop-log "INFO" "Reprojection"   
+    gdalwarp -ot UInt16 -srcnodata 0 -dstnodata 0 -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -t_srs EPSG:4326 ${currentTif} temp-outputfile.tif
+    # dB scaling
+    ciop-log "INFO" "Preparing SNAP request file for dB scaling"
+    [ $DEBUG -eq 1 ] && echo currentTif $currentTif
+    [ $DEBUG -eq 1 ] && echo currentTif_dB $currentTif_dB 
+    SNAP_REQUEST=$( create_snap_request_linear_to_dB "temp-outputfile.tif" "${currentTif_dB}" )
+    [ $? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
+    [ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST}
+    # report activity in the log
+    ciop-log "INFO" "Generated request file: ${SNAP_REQUEST}"
+    # report activity in the log
+    ciop-log "INFO" "Invoking SNAP-gpt on the generated request file for dB scaling"
+    # invoke the ESA SNAP toolbox
+    gpt $SNAP_REQUEST -c "${CACHE_SIZE}" &> /dev/null
+    # check the exit code
+    [ $? -eq 0 ] || return $ERR_SNAP
+    # remove temp file 
+    rm temp-outputfile.tif
+    case "$index" in
+        "0")
+            tifListDbSsv=${currentTif_dB}
+            ;;
+        *)
+            tifListDbSsv="${tifListDbSsv} ${currentTif_dB}"
+            ;;
+    esac
+
+done
+[ $DEBUG -eq 1 ] && echo tifListDbSsv $tifListDbSsv
+# tif file with all polarizations stacked to be converted in dim
+file2convert=${TMPDIR}/product2convert.tif
+# gdal_merge to create stack product
+gdal_merge.py -separate -n 0 ${tifListDbSsv} -o ${file2convert}
+[ $? -eq 0 ] || return ${ERR_GDAL}
+# convert tif to beam dimap format
+ciop-log "INFO" "Invoking SNAP-pconvert on the generated request file for tif to dim conversion"
+pconvert -f dim -o ${TMPDIR} ${file2convert}
+# check the exit code
+[ $? -eq 0 ] || return $ERR_SNAP
+# get filename of image dB scaled and converted in DIM
+imgFileDIM_dB=$(find ${TMPDIR} -name '*.dim')
+# remove temp files
+rm -r -f $lin2dbFolder
+# get bands name
+currentBandsList=$( xmlstarlet sel -t -v "/Dimap_Document/Image_Interpretation/Spectral_Band_Info/BAND_NAME" ${imgFileDIM_dB} )
+currentBandsList=(${currentBandsList})
+currentBandsList_num=${#currentBandsList[@]}
+currentBandsListTXT=${TMPDIR}/currentBandsList.txt
+# loop on band names to fill band list
+let "currentBandsList_num-=1"
+for index in `seq 0 $currentBandsList_num`;
+do
+    if [ $index -eq 0  ] ; then
+        echo ${currentBandsList[${index}]} > ${currentBandsListTXT}
+    else
+        echo  ${currentBandsList[${index}]} >> ${currentBandsListTXT}
+    fi
+done
+# loop over known product bands to fill target bands list
+targetBandsNamesListTXT=${TMPDIR}/targetBandsNamesList.txt
+# source bands list for Alos-2
+sourceBandsList=${sourceBandsList_alos2}
+# convert band from comma separted values to space separated values
+bandListSsv=$( echo "${sourceBandsList}" | sed 's|,| |g' )
+# convert ssv to array
+declare -a bandListArray=(${bandListSsv})
+# get number of bands
+numBands=${#bandListArray[@]}
+local bid=0
+let "numBands-=1"
+for bid in `seq 0 $numBands`; do
+    if [ $bid -eq 0  ] ; then
+        echo ${bandListArray[$bid]} > ${targetBandsNamesListTXT}
+    else
+        echo ${bandListArray[$bid]} >> ${targetBandsNamesListTXT}
+    fi
+done
+# build request file for rename all the bands contained into the product
+# report activity in the log
+outProdRename=${TMPDIR}/output_renamed_bands
+ciop-log "INFO" "Preparing SNAP request file for bands renaming"
+# prepare the SNAP request
+SNAP_REQUEST=$( create_snap_request_rename_all_bands "${imgFileDIM_dB}" "${currentBandsListTXT}" "${targetBandsNamesListTXT}" "${outProdRename}")
+[ $? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
+[ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST}
+# report activity in the log
+ciop-log "INFO" "Generated request file: ${SNAP_REQUEST}"
+# report activity in the log
+ciop-log "INFO" "Invoking SNAP-gpt on the generated request file bands renaming"
+# invoke the ESA SNAP toolbox
+gpt $SNAP_REQUEST -c "${CACHE_SIZE}" &> /dev/null
+# check the exit code
+[ $? -eq 0 ] || return $ERR_SNAP
+# remove temp calibrated file product in beam dimap
+rm -rf "${imgFileDIM_dB%.dim}.d*"
+
+# use the greter pixel spacing as target spacing (in order to downsample if needed, upsampling always avoided)
+local target_spacing=$( get_greater_pixel_spacing ${pixelSpacing} ${pixelSpacingMaster} )
+# check for resampling operator: to be used only if the resolution is differenet from the current product one
+local performResample=""
+if (( $(bc <<< "$target_spacing != $pixelSpacing") )) ; then
+    performResample="true"
+else
+    performResample="false"
+fi
+outProdBasename=${prodBasename}_pre_proc
+outProd=${OUTPUTDIR_PRE_PROC}/${outProdBasename}
+
+# report activity in the log
+ciop-log "INFO" "Preparing SNAP request file for data pre processing"
+# prepare the SNAP request
+SNAP_REQUEST=$( create_snap_request_rsmpl_rprj_sbs "${outProdRename}.dim" "${performResample}" "${target_spacing}" "${performCropping}" "${subsettingBoxWKT}" "${sourceBandsList}" "${outProd}")
+[ $? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
+[ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST}
+# report activity in the log
+ciop-log "INFO" "Generated request file: ${SNAP_REQUEST}"
+# report activity in the log
+ciop-log "INFO" "Invoking SNAP-gpt on the generated request file for data pre processing"
+# invoke the ESA SNAP toolbox
+gpt $SNAP_REQUEST -c "${CACHE_SIZE}" 2> log.txt
+returncode=$?
+test_txt=$(cat log.txt | grep "No intersection")
+rm -rf ${outProdRename}.d* ${targetBandsNamesListTXT}
+# catch proper error if any
+if [ $returncode -eq 0 ] ; then
+    # no error case
+    rm log.txt
+    return 0
+else
+    if [[ "${test_txt}" != "" ]]; then
+        # error due to void intersection between user AOI and data
+        [ $DEBUG -eq 1 ] && cat log.txt
+        rm log.txt
+        return $ERR_AOI
+    else
+        # generic snap-gpt execution error
+        [ $DEBUG -eq 1 ] && cat log.txt
+        rm log.txt
+        return $ERR_SNAP
+    fi
+fi
+
+}
+
+
+
 function create_snap_request_linear_to_dB(){
-# function call: create_snap_request_linear_to_dB "${inputfileDIM}" "${outputfileDIM}"
+# function call: create_snap_request_linear_to_dB "${inputfile}" "${outputfile}"
 
 # function which creates the actual request from
 # a template and returns the path to the request
@@ -1957,8 +2780,19 @@ if [ "$inputNum" -ne "2" ] ; then
     return ${SNAP_REQUEST_ERROR}
 fi
 
-local inputfileDIM=$1
-local outputfileDIM=$2
+local inputfile=$1
+local outputfile=$2
+local filename="${outputfile##*/}" 
+local ext="${filename##*.}"
+local format=""
+if [[ "$ext" == "dim" ]]; then
+    format="BEAM-DIMAP" 
+elif [[ "$ext" == "tif" ]]; then
+    format="GeoTIFF-BigTIFF"
+else
+    return ${SNAP_REQUEST_ERROR}    
+fi
+
 
 #sets the output filename
 snap_request_filename="${TMPDIR}/$( uuidgen ).xml"
@@ -1970,7 +2804,7 @@ cat << EOF > ${snap_request_filename}
     <operator>Read</operator>
     <sources/>
     <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-      <file>${inputfileDIM}</file>
+      <file>${inputfile}</file>
     </parameters>
   </node>
   <node id="BandMaths">
@@ -1998,8 +2832,8 @@ cat << EOF > ${snap_request_filename}
       <sourceProduct refid="BandMaths"/>
     </sources>
     <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-      <file>${outputfileDIM}</file>
-      <formatName>BEAM-DIMAP</formatName>
+      <file>${outputfile}</file>
+      <formatName>${format}</formatName>
     </parameters>
   </node>
   <applicationData id="Presentation">
@@ -2266,6 +3100,9 @@ local performCropping=$4
 local subsettingBoxWKT=$5
 local sourceBandsList=$6
 local outprod=$7
+# perform ceiling on target_spacing (resampling needs integer spacing)
+local pixelSpacing_floor=$(echo "scale=0; $target_spacing/1" | bc )
+(( $(bc <<< "$pixelSpacing_floor == $target_spacing") )) || let "target_spacing=pixelSpacing_floor+1" 
 
 local commentRsmpBegin=""
 local commentRsmpEnd=""
@@ -2432,25 +3269,32 @@ EOF
 
 # function that extracts the required band from input pre-processed product  
 function band_selection(){
-#function call band_selection "${out_pre_procDIM}" "${prodnameArray[$index]}" "${missionArray[$index]}" "${bandIdArr[$index]}" "${outputProd}" "${pixelSpacingMeters}" "${isMaster}"
+#function call band_selection "${out_pre_procDIM}" "${retrievedProduct}" "${prodnameArray[$index]}" "${missionArray[$index]}" "${bandIdArr[$index]}" "${outputProd}" "${pixelSpacingMeters}" "${isMaster}"
 inputNum=$#
-[ "$inputNum" -ne 7 ] && return ${ERR_BAND_SELECT}
+[ "$inputNum" -ne 8 ] && return ${ERR_BAND_SELECT}
 local inputDIM=$1
-local prodname=$2
-local mission=$3
-local bandId=$4
-local outputProd=$5
-local pixelSpacingMeters=$6
-local isMaster=$7
+local retrievedProduct=$2
+local prodname=$3
+local mission=$4
+local bandId=$5
+local outputProd=$6
+local pixelSpacingMeters=$7
+local isMaster=$8
 
 #get band list
-bandList=$( get_band_list "${prodname}" "${mission}" )
+# report activity in the log
+ciop-log "DEBUG" "Calling get_band_list "${prodname}" "${mission}" "${retrievedProduct}" "
+bandList=$( get_band_list "${prodname}" "${mission}" "${retrievedProduct}")
 returnCode=$?
 [ $returnCode -eq 0 ] || return $returnCode
+ciop-log "DEBUG" "bandList $bandList"
 # get band identifier
+# report activity in the log
+ciop-log "INFO" "Calling "${bandId}" "${bandList}" "
 bandIdentifier=$( get_band_id "${bandId}" "${bandList}")
 returnCode=$?
 [ $returnCode -eq 0 ] || return $returnCode
+ciop-log "DEBUG" "bandIdentifier "${bandIdentifier}" "
 outBandName=${prodname}_${bandIdentifier}
 # report activity in the log
 ciop-log "INFO" "Preparing SNAP request file for band extraction from pre-processed product"
@@ -2679,6 +3523,56 @@ EOF
 }
 
 
+# Functioon to get number of bands embedded in a tif file
+function get_bands_num_tif() {
+#function call num_bands=$(get_bands_num_tif "${inputTIF}")
+
+# get number of inputs
+inputNum=$#
+# check on number of inputs
+if [ "$inputNum" -ne "1" ] ; then
+    return ${ERR_GET_BANDS_NUM}
+fi
+
+local inputTIF=$1
+local num_bands=0
+# use gdalinfo to get band indexes list and put it in an array
+bandId_list=$(gdalinfo ${inputTIF} | grep Band | sed -n -e 's|^.*Band \(.*\)Block.*|\1|p')
+bandId_array=($bandId_list)
+# number of bands is equal to array size
+num_bands=${#bandId_array[@]}
+[ $num_bands -gt 0 ] && {
+    echo "${num_bands}"
+    return 0
+} || return ${ERR_GET_BANDS_NUM}
+
+}
+
+
+# Function to get the pixel spacing of a tif file
+# Only the X spacing is returned, assuming square pixel
+function get_pixel_spacing_tif() {
+# function call pixSpacing=$(get_pixel_spacing_tif "${inputTIF}")
+
+# get number of inputs
+inputNum=$#
+# check on number of inputs
+if [ "$inputNum" -ne "1" ] ; then
+    return ${ERR_GET_PIX_SPACING_TIF}
+fi
+
+local inputTIF=$1
+local pixel_spacing=0
+# use gdalinfo to get pixel spacing
+pixel_spacing=$(gdalinfo ${inputTIF} | grep "Pixel Size" |  sed -n -e 's|^.*Pixel Size = (\(.*\),.*|\1|p')
+[[ "${pixel_spacing}" != "" ]] && {
+    echo "${pixel_spacing}"
+    return 0
+} || return ${ERR_GET_PIX_SPACING_TIF}
+
+}
+
+
 function main() {
 
     [ $DEBUG -eq 1 ] && echo $SNAP_HOME
@@ -2866,8 +3760,8 @@ function main() {
         # report activity in the log
         ciop-log "INFO" "Check on band identifier"
         #get band list
-        ciop-log "DEBUG" "Running get_band_list ${prodname} ${mission} "
-        bandListCsv=$( get_band_list "${prodname}" "${mission}" )
+        ciop-log "DEBUG" "Running get_band_list ${prodname} ${mission} "${retrievedProduct}" "
+        bandListCsv=$( get_band_list "${prodname}" "${mission}" "${retrievedProduct}" )
 	returnCode=$?
         [ $returnCode -eq 0 ] || return $returnCode
         #get band list
@@ -2903,8 +3797,6 @@ function main() {
             pre_processing "${retrievedProductArray[$index]}" "${missionArray[$index]}" "${pixelSpacingArray[$index]}" "${pixelSpacingMaster}" "${performCropping}" "${subsettingBoxWKT}"
             returnCode=$?
             [ $returnCode -eq 0 ] || return $returnCode
-            #cleanup
-            rm -rf ${retrievedProductArray[$index]}
 
 	    # Band selection processing
             # NOTE: it is assumed that the "pre_processing" function always provides results in DIM format in $OUTPUTDIR_PRE_PROC
@@ -2925,8 +3817,8 @@ function main() {
         # report activity in the log
         ciop-log "INFO" "Running band selection for ${retrievedProductArray[$index]}"
         # report activity in the log
-        ciop-log "DEBUG" "Function call band_selection "${out_pre_procDIM}" "${prodNameNoExt}" "${missionArray[$index]}" "${bandIdArr[$index]}" "${outputProd}" "${pixelSpacingMaster}" "${currentIsMaster}" "
- 	band_selection "${out_pre_procDIM}" "${prodNameNoExt}" "${missionArray[$index]}" "${bandIdArr[$index]}" "${outputProd}" "${pixelSpacingMaster}" "${isMasterArray[$index]}" 	
+        ciop-log "DEBUG" "Function call band_selection "${out_pre_procDIM}" "${retrievedProductArray[$index]}" "${prodNameNoExt}" "${missionArray[$index]}" "${bandIdArr[$index]}" "${outputProd}" "${pixelSpacingMaster}" "${currentIsMaster}" "
+ 	band_selection "${out_pre_procDIM}" "${retrievedProductArray[$index]}" "${prodNameNoExt}" "${missionArray[$index]}" "${bandIdArr[$index]}" "${outputProd}" "${pixelSpacingMaster}" "${isMasterArray[$index]}" 	
         returnCode=$?
 	[ $returnCode -eq 0 ] || return $returnCode
 	# save pre-proc out if it should be re-used by another color channel
