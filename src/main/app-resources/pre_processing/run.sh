@@ -2274,12 +2274,14 @@ gdal_edit.py -unsetmd ${imgFile}
 [ $? -eq 0 ] || return ${ERR_GDAL}
 # rename data to avoid that SNAP-gpt uses the K5 reader (that doesn't work) while converting into DIM
 file2convert=${TMPDIR}/product2convert.tif
-mv ${imgFile} ${file2convert}
+cp ${imgFile} ${file2convert}
 # convert tif to beam dimap format
 ciop-log "INFO" "Invoking SNAP-pconvert on the generated request file for tif to dim conversion"
 pconvert -f dim -o ${TMPDIR} ${file2convert}
 # check the exit code
 [ $? -eq 0 ] || return $ERR_SNAP
+# remove temp file
+rm -r -f ${file2convert}
 # get translated product name
 imgFileDIM=${TMPDIR}/product2convert.dim
 # define output name of DIM product with K5 file converted into dB
@@ -2444,7 +2446,7 @@ pconvert -f dim -o ${TMPDIR} ${file2convert}
 # check the exit code
 [ $? -eq 0 ] || return $ERR_SNAP
 #remove temp folder
-rm -r -f tsx_temp
+rm -r -f tsx_temp ${file2convert}
 # get translated product name
 imgFileDIM=${TMPDIR}/product2convert.dim
 # get bands name
@@ -2652,6 +2654,7 @@ done
 [ $DEBUG -eq 1 ] && echo tifListDbSsv $tifListDbSsv
 # tif file with all polarizations stacked to be converted in dim
 file2convert=${TMPDIR}/product2convert.tif
+ciop-log "INFO" "Invoking gdal_merge to stack all polarization channels in a single tif"
 # gdal_merge to create stack product
 gdal_merge.py -separate -n 0 ${tifListDbSsv} -o ${file2convert}
 [ $? -eq 0 ] || return ${ERR_GDAL}
@@ -2660,8 +2663,10 @@ ciop-log "INFO" "Invoking SNAP-pconvert on the generated request file for tif to
 pconvert -f dim -o ${TMPDIR} ${file2convert}
 # check the exit code
 [ $? -eq 0 ] || return $ERR_SNAP
+# remove temp file 
+rm -r -f ${file2convert}
 # get filename of image dB scaled and converted in DIM
-imgFileDIM_dB=$(find ${TMPDIR} -name '*.dim')
+imgFileDIM_dB=${TMPDIR}/product2convert.dim
 # remove temp files
 rm -r -f $lin2dbFolder
 # get bands name
@@ -2719,13 +2724,10 @@ rm -rf "${imgFileDIM_dB%.dim}.d*"
 
 # use the greter pixel spacing as target spacing (in order to downsample if needed, upsampling always avoided)
 local target_spacing=$( get_greater_pixel_spacing ${pixelSpacing} ${pixelSpacingMaster} )
-# check for resampling operator: to be used only if the resolution is differenet from the current product one
-local performResample=""
-if (( $(bc <<< "$target_spacing != $pixelSpacing") )) ; then
-    performResample="true"
-else
-    performResample="false"
-fi
+
+# fixed value of performResample variable due to SNAP error in resampling Alos data
+performResample="false"
+
 outProdBasename=${prodBasename}_pre_proc
 outProd=${OUTPUTDIR_PRE_PROC}/${outProdBasename}
 
@@ -3298,14 +3300,8 @@ ciop-log "DEBUG" "bandIdentifier "${bandIdentifier}" "
 outBandName=${prodname}_${bandIdentifier}
 # report activity in the log
 ciop-log "INFO" "Preparing SNAP request file for band extraction from pre-processed product"
-# if sar mission the selected band should be also clipped: dedicated prcessing
-if [ ${mission} = "Sentinel-1"  ] || [ ${mission} = "Radarsat-2" ]; then
-    # prepare the SNAP request
-    SNAP_REQUEST=$( create_snap_request_band_math_sar "${inputDIM}" "${bandIdentifier}" "${outBandName}" "${outputProd}")
-else
-    # prepare the SNAP request
-    SNAP_REQUEST=$( create_snap_request_band_math "${inputDIM}" "${bandIdentifier}" "${outBandName}" "${outputProd}")
-fi
+# prepare the SNAP request
+SNAP_REQUEST=$( create_snap_request_band_math "${inputDIM}" "${bandIdentifier}" "${outBandName}" "${outputProd}")
 [ $? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
 [ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST}
 # report activity in the log
@@ -3321,6 +3317,7 @@ propertiesFile=${outputProd}.properties
 cat << EOF > ${propertiesFile}
 product=${prodname}
 band=${bandIdentifier}
+mission=${mission}
 pixelSpacingMeters=${pixelSpacingMeters}
 isMaster=${isMaster}
 EOF
@@ -3416,111 +3413,6 @@ EOF
 
 }
 
-
-function create_snap_request_band_math_sar(){
-#function call create_snap_request_band_math_sar "${inputDIM}" "${bandIdentifier}" "${outBandName}" "${outputProd}"
-
-# get number of inputs
-inputNum=$#
-# check on number of inputs
-if [ "$inputNum" -ne "4" ] ; then
-    return ${SNAP_REQUEST_ERROR}
-fi
-
-local inputDIM=$1
-local bandIdentifier=$2
-local outBandName=$3
-local outputProd=$4
-
-# put '' in band name if dash is present
-dash_test=$( echo ${bandIdentifier} | grep "-" )
-if [[ "${dash_test}" != "" ]] ; then
-    bandIdentifier=\'${bandIdentifier}\'
-fi
-
-
-#sets the output filename
-snap_request_filename="${TMPDIR}/$( uuidgen ).xml"
-
-   cat << EOF > ${snap_request_filename}
-<graph id="Graph">
-  <version>1.0</version>
-  <node id="Read">
-    <operator>Read</operator>
-    <sources/>
-    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-      <file>${inputDIM}</file>
-    </parameters>
-  </node>
-  <node id="BandMaths">
-    <operator>BandMaths</operator>
-    <sources>
-      <sourceProduct refid="Read"/>
-    </sources>
-    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-      <targetBands>
-        <targetBand>
-          <name>bandSel</name>
-          <type>float32</type>
-          <expression>${bandIdentifier}</expression>
-          <description/>
-          <unit/>
-          <noDataValue>NaN</noDataValue>
-        </targetBand>
-      </targetBands>
-      <variables/>
-    </parameters>
-  </node>
-  <node id="BandMaths(2)">
-    <operator>BandMaths</operator>
-    <sources>
-      <sourceProduct refid="BandMaths"/>
-    </sources>
-    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-      <targetBands>
-        <targetBand>
-          <name>${outBandName}</name>
-          <type>float32</type>
-          <expression>if !nan(bandSel) then (if bandSel&lt;=-15 then -15 else (if bandSel&gt;=5 then 5 else bandSel)) else NaN</expression>
-          <description/>
-          <unit/>
-          <noDataValue>NaN</noDataValue>
-        </targetBand>
-      </targetBands>
-      <variables/>
-    </parameters>
-  </node>
-  <node id="Write">
-    <operator>Write</operator>
-    <sources>
-       <sourceProduct refid="BandMaths(2)"/>
-    </sources>
-    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-      <file>${outputProd}.dim</file>
-      <formatName>BEAM-DIMAP</formatName>
-    </parameters>
-  </node>
-  <applicationData id="Presentation">
-    <Description/>
-    <node id="Write">
-            <displayPosition x="455.0" y="135.0"/>
-    </node>
-    <node id="BandMaths">
-      <displayPosition x="140.0" y="133.0"/>
-    </node>
-    <node id="Read">
-            <displayPosition x="37.0" y="134.0"/>
-    </node>
-  </applicationData>
-</graph>
-EOF
-
-[ $? -eq 0 ] && {
-    echo "${snap_request_filename}"
-    return 0
-} || return ${SNAP_REQUEST_ERROR}
-
-}
 
 
 # Functioon to get number of bands embedded in a tif file
