@@ -274,28 +274,35 @@ function main ()
     declare -a inputfilesProp_list
     inputfilesProp_list+=("${inputfilesProp["${redIndex}"]}")
     inputfilesProp_list+=("${inputfilesProp["${greenIndex}"]}") 
-    inputfilesProp_list+=("${inputfilesProp["${blueIndex}"]}")   
+    inputfilesProp_list+=("${inputfilesProp["${blueIndex}"]}")
+    # mission identifier list
+    declare -a mission_list   
     # fill product properties
     for index in `seq 0 $inputfilesNum`;
     do
         prodName=$(cat ${inputfilesProp_list[$index]} | grep product | sed -n -e 's|^.*product=\(.*\)|\1|p')
         bandIdentifier=$(cat ${inputfilesProp_list[$index]} | grep band | sed -n -e 's|^.*band=\(.*\)|\1|p')
+        missionId=$(cat ${inputfilesProp_list[$index]} | grep mission | sed -n -e 's|^.*mission=\(.*\)|\1|p')
         case $index in
             "0") #RED
 	        echo Red_Product=$prodName > $prodList_prop
                 echo Red_Product_Band=$bandIdentifier >> $prodList_prop
+                echo Red_Product_Mission=$missionId >> $prodList_prop
 	    ;;
             "1") #GREEN
 		echo Green_Product=$prodName >> $prodList_prop
                 echo Green_Product_Band=$bandIdentifier >> $prodList_prop
+                echo Green_Product_Mission=$missionId >> $prodList_prop
             ;;
 	    "2") #BLUE
 		echo Blue_Product=$prodName >> $prodList_prop
                 echo Blue_Product_Band=$bandIdentifier >> $prodList_prop
+                echo Blue_Product_Mission=$missionId >> $prodList_prop
 	    	pixelSpacingMeters=$(cat ${inputfilesProp[$masterIndex]} | grep pixelSpacingMeters | sed -n -e 's|^.*pixelSpacingMeters=\(.*\)|\1|p')
                 echo pixelSpacingMeters=$pixelSpacingMeters >> $prodList_prop
             ;;
 	esac
+        mission_list+=("${missionId}")
     done 
                     
     ## DATA STACKING 
@@ -334,11 +341,24 @@ function main ()
     outputRGB_TIF=${OUTPUTDIR}/RGB.tif
     outputRGB_PNG=${OUTPUTDIR}/RGB.png
     outputRGB_Prop=${OUTPUTDIR}/RGB.properties
-    
-    # histogram skip (percentiles from 2 to 96) on separated bands
-    python $_CIOP_APPLICATION_PATH/rgb_combination/hist_skip_no_zero.py "${outProdTIF}" "${stackOrderRGB[0]}" 2 96 "temp-outputfile_band_r.tif"
-    python $_CIOP_APPLICATION_PATH/rgb_combination/hist_skip_no_zero.py "${outProdTIF}" "${stackOrderRGB[1]}" 2 96 "temp-outputfile_band_g.tif"
-    python $_CIOP_APPLICATION_PATH/rgb_combination/hist_skip_no_zero.py "${outProdTIF}" "${stackOrderRGB[2]}" 2 96 "temp-outputfile_band_b.tif"
+    #temporary tif files list
+    declare -a tmpProd_list=("temp-outputfile_band_r.tif" "temp-outputfile_band_g.tif" "temp-outputfile_band_b.tif")
+    # loop on stack bands for radiometric enhancement 
+    for index in `seq 0 $inputfilesNum`;
+    do
+        mission="${mission_list[$index]}"
+        # tailored enhancement for some SAR missions
+        if [ ${mission} = "Sentinel-1"  ] || [ ${mission} = "Radarsat-2" ]; then
+	    #linear strecth between -15 dB and +5 dB
+	    python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" -15 5 "${tmpProd_list[$index]}"	
+	# generic enhancement for all the other missions
+        else
+            # histogram skip (percentiles from 2 to 96)
+            python $_CIOP_APPLICATION_PATH/rgb_combination/hist_skip_no_zero.py "${outProdTIF}" "${stackOrderRGB[$index]}" 2 96 "${tmpProd_list[$index]}"
+	fi
+         
+    done
+    # merge radiometric enhanced bands
     gdal_merge.py -separate -n 0 -a_nodata 0 -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" "temp-outputfile_band_r.tif" "temp-outputfile_band_g.tif" "temp-outputfile_band_b.tif" -o temp-outputfile.tif
     #remove temp files
     rm temp-outputfile_band_r.tif temp-outputfile_band_g.tif temp-outputfile_band_b.tif
