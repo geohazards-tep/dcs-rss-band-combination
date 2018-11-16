@@ -1073,12 +1073,15 @@ local pixelSpacingMaster=$3
 local performCropping=$4
 local subsettingBoxWKT=$5
 local prodname=""
-unzippedFolder=$(ls $retrievedProduct)
-# log the value, it helps debugging.
-# the log entry is available in the process stderr
-ciop-log "DEBUG" "unzippedFolder: ${unzippedFolder}"
-# retrieved product pointing to the unzipped folder
-prodname=$retrievedProduct/$unzippedFolder
+
+# get S1 product name removing extension
+local s1_basename=$(basename "${retrievedProduct}")
+prodname="${s1_basename%.*}"
+ciop-log "DEBUG" "s1_prodname ${prodname}"
+
+# get s1 manifest path
+s1_manifest=$(find ${retrievedProduct}/ -name 'manifest.safe')
+ciop-log "DEBUG" "s1_manifest ${s1_manifest}"
 
 outProdBasename=$(basename ${prodname})_pre_proc
 outProd=${OUTPUTDIR_PRE_PROC}/${outProdBasename}
@@ -1090,7 +1093,7 @@ ciop-log "DEBUG" "ml_factor: ${ml_factor}"
 ciop-log "INFO" "Preparing SNAP request file for Sentinel 1 data pre processing"
 
 # prepare the SNAP request
-SNAP_REQUEST=$( create_snap_request_pre_processing_s1 "${prodname}" "${ml_factor}" "${pixelSpacing}" "${performCropping}" "${subsettingBoxWKT}" "${outProd}")
+SNAP_REQUEST=$( create_snap_request_pre_processing_s1 "${s1_manifest}" "${ml_factor}" "${pixelSpacing}" "${performCropping}" "${subsettingBoxWKT}" "${outProd}")
 [ $? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
 [ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST}
 # report activity in the log
