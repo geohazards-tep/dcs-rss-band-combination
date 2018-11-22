@@ -24,6 +24,7 @@ ERR_PCONVERT=11
 ERR_PROPERTIES_FILE_CREATOR=12
 ERR_CONVERT=13
 ERR_AOI=14
+ERR_GET_MISSION_ID=15
 
 # add a trap to exit gracefully
 function cleanExit ()
@@ -45,8 +46,9 @@ function cleanExit ()
         ${ERR_GETPRODMTD})              msg="Error while retrieving metadata file from product";;
         ${ERR_PCONVERT})                msg="PCONVERT failed to process";;
         ${ERR_PROPERTIES_FILE_CREATOR}) msg="Could not create the .properties file";;
-        ${ERR_CONVERT})           	msg="Error generating output product";;
+        ${ERR_CONVERT})        	        msg="Error generating output product";;
         ${ERR_AOI})                     msg="Error: no intersection between input products";;
+	${ERR_GET_MISSION_ID})          msg="Error while getting short mission identifier from mission name";;
         *)                              msg="Unknown error";;
     esac
 
@@ -173,7 +175,96 @@ EOF
 }
 
 
-function main ()
+# function that get the complete mission name and returns its short version 
+function getMissionShortId()
+{
+# function call missionShortId=$(getMissionShortId "${mission}")
+
+# get number of inputs
+inputNum=$#
+# check on number of inputs
+if [ "$inputNum" -ne "1" ]; then
+    return ${ERR_GET_MISSION_ID}
+fi
+local mission=$1
+case "$mission" in
+    "Sentinel-1")
+	echo "S1"
+        ;;
+
+    "Sentinel-2")
+        echo "S2"
+        ;;
+
+    "UK-DMC2")
+        echo "UKDMC2"
+        ;;
+
+    "Kompsat-2")
+        echo "K2"
+        ;;
+
+    "Kompsat-3")
+        echo "K3"
+        ;;
+
+    "Landsat-8")
+        echo "LS8"
+        ;;
+        
+    "Pleiades")
+        echo "PHR"
+        ;;
+
+    "Radarsat-2")
+        echo "RS2"
+        ;;
+
+    SPOT-[6-7])
+        echo "SPOT"
+        ;;
+
+    "Kompsat-5")
+	echo "K5"
+        ;;
+
+    "VRSS1")
+	    echo "VRSS1"
+        ;;
+
+    "RapidEye")
+        echo "RE"
+	    ;;
+
+	"GF2")
+	    echo "GF2"
+	    ;;
+
+    "Alos-2")
+        echo "ALOS2"
+        ;;
+
+    "Kanopus-V")
+        echo "KNV"
+	    ;;
+
+    "Resurs-P")
+	    echo "RSP"
+	    ;;
+        
+    "TerraSAR-X")
+	    echo "TSX"
+		;;
+
+    *)
+        echo "NA"
+        ;;
+esac
+
+return 0
+}
+
+function main()
 {
     [ $DEBUG -eq 1 ] && echo $SNAP_HOME
     [ $DEBUG -eq 1 ] && echo $SNAP_VERSION
@@ -187,9 +278,22 @@ function main ()
     # the log entry is available in the process stderr
     ciop-log "DEBUG" "Number of input products ${inputfilesNum}"
     
-    # Always 3 input expected: "red.tar" "green.tar" "blue.tar")
-    # loop on input products to retrieve them and fill list for stacking operation
+    # Always 3 input expected: "red.tar" "green.tar" "blue.tar")    
     [ ${inputfilesNum} -eq 3 ] || return $ERR_WRONGINPUTNUM
+    #get red band index
+    local redBandIndex="`ciop-getparam redBandIndex`"
+    # log the value, it helps debugging.
+    ciop-log "DEBUG" "Red band identifier provided: ${redBandIndex}"
+    #get green band index
+    local greenBandIndex="`ciop-getparam greenBandIndex`"
+    # log the value, it helps debugging.
+    ciop-log "DEBUG" "Green band identifier provided: ${greenBandIndex}"
+    #get blue band index
+    local blueBandIndex="`ciop-getparam blueBandIndex`"
+    # log the value, it helps debugging.
+    ciop-log "DEBUG" "Blue band identifier provided: ${blueBandIndex}"
+	
+    # loop on input products to retrieve them and fill list for stacking operation
     declare -a inputfilesDIM
     declare -a inputfilesProp
     redIndex=""
@@ -234,7 +338,7 @@ function main ()
         #save product index
         [[ "$(basename $inputDIM | grep red)" != "" ]] && redIndex=$index
         [[ "$(basename $inputDIM | grep green)" != "" ]] && greenIndex=$index
-	[[ "$(basename $inputDIM | grep blue)" != "" ]] && blueIndex=$index
+	    [[ "$(basename $inputDIM | grep blue)" != "" ]] && blueIndex=$index
         # save master index
         currentIsMaster=$(cat ${inputProp} | grep isMaster | sed -n -e 's|^.*isMaster=\(.*\)|\1|p')
         [[ "${currentIsMaster}" == "1" ]] && masterIndex=$index
@@ -275,7 +379,10 @@ function main ()
     inputfilesProp_list+=("${inputfilesProp["${greenIndex}"]}") 
     inputfilesProp_list+=("${inputfilesProp["${blueIndex}"]}")
     # mission identifier list
-    declare -a mission_list   
+    declare -a mission_list
+    declare -a missionShortId_list
+    # band index list
+    declare -a bandShortIndex_list	
     # fill product properties
     for index in `seq 0 $inputfilesNum`;
     do
@@ -287,21 +394,34 @@ function main ()
 	        echo Red_Product=$prodName > $prodList_prop
                 echo Red_Product_Band=$bandIdentifier >> $prodList_prop
                 echo Red_Product_Mission=$missionId >> $prodList_prop
-	    ;;
+		bandId=${redBandIndex}
+	        ;;
             "1") #GREEN
 		echo Green_Product=$prodName >> $prodList_prop
                 echo Green_Product_Band=$bandIdentifier >> $prodList_prop
                 echo Green_Product_Mission=$missionId >> $prodList_prop
-            ;;
+		bandId=${greenBandIndex}
+                ;;
 	    "2") #BLUE
-		echo Blue_Product=$prodName >> $prodList_prop
+	        echo Blue_Product=$prodName >> $prodList_prop
                 echo Blue_Product_Band=$bandIdentifier >> $prodList_prop
                 echo Blue_Product_Mission=$missionId >> $prodList_prop
-	    	pixelSpacingMeters=$(cat ${inputfilesProp[$masterIndex]} | grep pixelSpacingMeters | sed -n -e 's|^.*pixelSpacingMeters=\(.*\)|\1|p')
+                pixelSpacingMeters=$(cat ${inputfilesProp[$masterIndex]} | grep pixelSpacingMeters | sed -n -e 's|^.*pixelSpacingMeters=\(.*\)|\1|p')
                 echo pixelSpacingMeters=$pixelSpacingMeters >> $prodList_prop
-            ;;
-	esac
+		bandId=${blueBandIndex}
+                ;;
+        esac
+        # report activity in the log
+        ciop-log "DEBUG" "Mission ID: ${missionId}"
         mission_list+=("${missionId}")
+	missionShortId=$(getMissionShortId "${missionId}")
+        # report activity in the log
+        ciop-log "DEBUG" "Short mission ID: ${missionShortId}"
+	missionShortId_list+=("${missionShortId}")
+        bandShortIndex=$(echo "${bandId}" | sed -n -e 's|^.*band_\(.*\)|\1|p')
+        # report activity in the log
+        ciop-log "DEBUG" "Short band index: ${bandShortIndex}"
+	bandShortIndex_list+=("${bandShortIndex}")
     done 
                     
     ## DATA STACKING 
@@ -337,49 +457,63 @@ function main ()
     ## RGB FULL RESOLUTION CREATION
     # report activity in the log
     ciop-log "INFO" "Full resolution RGB TIF visualization product creation"
-    outputRGB_TIF=${OUTPUTDIR}/RGB.tif
-    outputRGB_PNG=${OUTPUTDIR}/RGB.png
-    outputRGB_Prop=${OUTPUTDIR}/RGB.properties
+
     #temporary tif files list
     declare -a tmpProd_list=("temp-outputfile_band_r.tif" "temp-outputfile_band_g.tif" "temp-outputfile_band_b.tif")
-    # loop on stack bands for radiometric enhancement 
+	declare -a outRGB_list=("${OUTPUTDIR}/R_${missionShortId_list[0]}_${bandShortIndex_list[0]}" "${OUTPUTDIR}/G_${missionShortId_list[1]}_${bandShortIndex_list[1]}" "${OUTPUTDIR}/B_${missionShortId_list[2]}_${bandShortIndex_list[2]}")
+	outputRGB=${OUTPUTDIR}/RGB_${missionShortId_list[0]}_${bandShortIndex_list[0]}_${missionShortId_list[1]}_${bandShortIndex_list[1]}_${missionShortId_list[2]}_${bandShortIndex_list[2]}
+    # loop on individual bands for radiometric enhancement and output production
     for index in `seq 0 $inputfilesNum`;
     do
         mission="${mission_list[$index]}"
         # tailored enhancement for some SAR missions
         if [ ${mission} = "Sentinel-1"  ] || [ ${mission} = "Radarsat-2" ]; then
-	    #linear strecth between -15 dB and +5 dB
-	    python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" -15 5 "${tmpProd_list[$index]}"	
-	# generic enhancement for all the other missions
+	        #linear strecth between -15 dB and +5 dB
+	        python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" -15 5 "${tmpProd_list[$index]}"	
+	    # generic enhancement for all the other missions
         else
             # histogram skip (percentiles from 2 to 96)
             python $_CIOP_APPLICATION_PATH/rgb_combination/hist_skip_no_zero.py "${outProdTIF}" "${stackOrderRGB[$index]}" 2 96 "${tmpProd_list[$index]}"
-	fi
-         
+		fi
+	    #re-projection
+        gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" "${tmpProd_list[$index]}" "${outRGB_list[$index]}".tif
+        returnCode=$?
+        [ $returnCode -eq 0 ] || return ${ERR_CONVERT}
+        #Add overviews
+        gdaladdo -r average "${outRGB_list[$index]}".tif 2 4 8 16
+        returnCode=$?
+        [ $returnCode -eq 0 ] || return ${ERR_CONVERT}    
+        # Create PNG output
+        gdal_translate -ot Byte -of PNG "${outRGB_list[$index]}".tif "${outRGB_list[$index]}".png
+        #remove temp xml file produced together with png
+        rm -f "${outRGB_list[$index]}".png.aux.xml
+        # create properties file for phase tif product
+        processingTime=$( date )
+        description="Individual band product"
+        output_properties=$( propertiesFileCratorTIF  "${outRGB_list[$index]}".tif "${description}" "${inputfilesProp_list[$index]}" "${processingTime}" "${outRGB_list[$index]}".properties )         
     done
     # merge radiometric enhanced bands
     gdal_merge.py -separate -n 0 -a_nodata 0 -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" "temp-outputfile_band_r.tif" "temp-outputfile_band_g.tif" "temp-outputfile_band_b.tif" -o temp-outputfile.tif
     #remove temp files
     rm temp-outputfile_band_r.tif temp-outputfile_band_g.tif temp-outputfile_band_b.tif
-
     #re-projection
-    gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" temp-outputfile.tif ${outputRGB_TIF}
+    gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" temp-outputfile.tif ${outputRGB}.tif
     returnCode=$?
     [ $returnCode -eq 0 ] || return ${ERR_CONVERT}
     #Remove temporary file
     rm -f temp-outputfile.tif
     #Add overviews
-    gdaladdo -r average ${outputRGB_TIF} 2 4 8 16
+    gdaladdo -r average ${outputRGB}.tif 2 4 8 16
     returnCode=$?
     [ $returnCode -eq 0 ] || return ${ERR_CONVERT}    
     # Create PNG output
-    gdal_translate -ot Byte -of PNG ${outputRGB_TIF} ${outputRGB_PNG}
+    gdal_translate -ot Byte -of PNG ${outputRGB}.tif ${outputRGB}.png
     #remove temp xml file produced together with png
-    rm -f ${outputRGB_PNG}.aux.xml
+    rm -f ${outputRGB}.png.aux.xml
     # create properties file for phase tif product
     processingTime=$( date )
     description="RGB combination"
-    output_properties=$( propertiesFileCratorTIF  "${outputRGB_TIF}" "${description}" "${prodList_prop}"  "${processingTime}" "${outputRGB_Prop}" )
+    output_properties=$( propertiesFileCratorTIF  "${outputRGB}".tif "${description}" "${prodList_prop}" "${processingTime}" "${outputRGB}".properties )
     # report activity in the log
     ciop-log "DEBUG" "Properties file created: ${output_properties}"
     # publish the coergistered product
@@ -417,3 +551,4 @@ res=$?
 [ ${res} -ne 0 ] && exit ${res}
 
 exit $SUCCESS
+
