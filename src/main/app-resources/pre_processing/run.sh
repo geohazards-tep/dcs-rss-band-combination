@@ -336,6 +336,7 @@ function mission_prod_retrieval(){
     [ "${prod_basename_substr_3}" = "K3_" ] && mission="Kompsat-3"
     [ "${prod_basename_substr_3}" = "LC8" ] && mission="Landsat-8"
     [ "${prod_basename_substr_4}" = "LS08" ] && mission="Landsat-8"
+    [ "${prod_basename_substr_4}" = "LC08" ] && mission="Landsat-8"
     [ "${prod_basename_substr_4}" = "MSC_" ] && mission="Kompsat-2"
     [ "${prod_basename_substr_4}" = "FCGC" ] && mission="Pleiades"
     [ "${prod_basename_substr_5}" = "CHART" ] && mission="Pleiades"
