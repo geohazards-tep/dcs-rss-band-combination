@@ -42,6 +42,24 @@
     <jobTemplate id="rgb_combination">
       <streamingExecutable>/application/rgb_combination/run.sh</streamingExecutable>
       <defaultParameters>
+	    <parameter id="redBandIndex" title="RED channel band ID" abstract="Select the band (or a math combination of 2 bands) that will be assigned as red channel of RGB image." scope="runtime" maxOccurs="1">
+		  <options>
+            <option>band_1</option><option>band_2</option><option>band_3</option><option>band_4</option><option>band_5</option><option>band_6</option><option>band_7</option><option>band_8</option><option>band_9</option><option>band_10</option><option>band_11</option><option>band_12</option><option>band_13</option><option>band_14</option><option>band_15</option><option>band_16</option><option>band_17</option><option>band_18</option><option>band_19</option><option>band_20</option>
+            <default>band_1</default>
+          </options>
+	    </parameter>
+        <parameter id="greenBandIndex" title="GREEN channel band ID" abstract="Select the band (or a math combination of 2 bands) that will be assigned as green channel of RGB image." scope="runtime" maxOccurs="1">		
+		  <options>
+			<option>band_1</option><option>band_2</option><option>band_3</option><option>band_4</option><option>band_5</option><option>band_6</option><option>band_7</option><option>band_8</option><option>band_9</option><option>band_10</option><option>band_11</option><option>band_12</option><option>band_13</option><option>band_14</option><option>band_15</option><option>band_16</option><option>band_17</option><option>band_18</option><option>band_19</option><option>band_20</option>
+            <default>band_1</default>
+          </options>
+	    </parameter>
+        <parameter id="blueBandIndex" title="BLUE channel band ID" abstract="Select the band (or a math combination of 2 bands) that will be assigned as blue channel of RGB image." scope="runtime" maxOccurs="1">
+		  <options>
+            <option>band_1</option><option>band_2</option><option>band_3</option><option>band_4</option><option>band_5</option><option>band_6</option><option>band_7</option><option>band_8</option><option>band_9</option><option>band_10</option><option>band_11</option><option>band_12</option><option>band_13</option><option>band_14</option><option>band_15</option><option>band_16</option><option>band_17</option><option>band_18</option><option>band_19</option><option>band_20</option>
+            <default>band_1</default>
+          </options>
+	    </parameter>
       </defaultParameters>
       <defaultJobconf>
         <property id="ciop.job.max.tasks">1</property>
@@ -67,3 +85,4 @@
     </node>
   </workflow>
 </application>
+
