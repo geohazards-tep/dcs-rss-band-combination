@@ -457,68 +457,113 @@ function main()
     ## RGB FULL RESOLUTION CREATION
     # report activity in the log
     ciop-log "INFO" "Full resolution RGB TIF visualization product creation"
-
-    #temporary tif files list
-    declare -a tmpProd_list=("temp-outputfile_band_r.tif" "temp-outputfile_band_g.tif" "temp-outputfile_band_b.tif")
+    declare -a tmpProd_list=("temp-outputfile_band_r" "temp-outputfile_band_g" "temp-outputfile_band_b")
 	declare -a outRGB_list=("${OUTPUTDIR}/R_${missionShortId_list[0]}_${bandShortIndex_list[0]}" "${OUTPUTDIR}/G_${missionShortId_list[1]}_${bandShortIndex_list[1]}" "${OUTPUTDIR}/B_${missionShortId_list[2]}_${bandShortIndex_list[2]}")
 	outputRGB=${OUTPUTDIR}/RGB_${missionShortId_list[0]}_${bandShortIndex_list[0]}_${missionShortId_list[1]}_${bandShortIndex_list[1]}_${missionShortId_list[2]}_${bandShortIndex_list[2]}
-    # loop on individual bands for radiometric enhancement and output production
-    for index in `seq 0 $inputfilesNum`;
-    do
-        mission="${mission_list[$index]}"
-        # tailored enhancement for some SAR missions
-        if [ ${mission} = "Sentinel-1"  ] || [ ${mission} = "Radarsat-2" ]; then
-	        #linear strecth between -15 dB and +5 dB
-	        python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" -15 5 "${tmpProd_list[$index]}"	
-	    # generic enhancement for all the other missions
-        else
-            # histogram skip (percentiles from 2 to 96)
-            python $_CIOP_APPLICATION_PATH/rgb_combination/hist_skip_no_zero.py "${outProdTIF}" "${stackOrderRGB[$index]}" 2 96 "${tmpProd_list[$index]}"
+			
+	#####Start changes
+	for index in `seq 0 $inputfilesNum`;
+    	do
+        	mission="${mission_list[$index]}"
+        	if [ ${mission} = "Sentinel-1"  ] || [ ${mission} = "Radarsat-2" ]; then
+		
+		# tailored enhancement for some SAR missions
+		python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" -15 5 "${tmpProd_list[$index]}"_p1.tif	
+ 		
+		#re-projection
+        	gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" "${tmpProd_list[$index]}"_p1.tif "${outRGB_list[$index]}"_p1.tif
+        	returnCode=$?
+		[ $returnCode -eq 0 ] || return ${ERR_CONVERT}
+        	
+		#Add overviews
+        	gdaladdo -r average "${outRGB_list[$index]}"_p1.tif 2 4 8 16
+        	returnCode=$?
+        	[ $returnCode -eq 0 ] || return ${ERR_CONVERT}    
+		
+		# Create PNG output
+        	gdal_translate -ot Byte -of PNG "${outRGB_list[$index]}"_p1.tif "${outRGB_list[$index]}"_p1.png
+        	
+		#remove temp xml file produced together with png
+        	rm -f "${outRGB_list[$index]}"_p1.png.aux.xml
+        	# create properties file for phase tif product
+        	processingTime=$( date )
+        	description="Individual band product"
+        	output_properties=$( propertiesFileCratorTIF  "${outRGB_list[$index]}"_p1.tif "${description}" "${inputfilesProp_list[$index]}" "${processingTime}" "${outRGB_list[$index]}"_p1.properties )         
+	
+		else	
+			# Product III : histogram stretching between 0 and 96% (initial COMBI solution) 
+	        	python $_CIOP_APPLICATION_PATH/rgb_combination/hist_skip_no_zero.py "${outProdTIF}" "${stackOrderRGB[$index]}" 2 96 "${tmpProd_list[$index]}"_p3.tif
+			# Product II : histogram stretching between min and max 
+			python $_CIOP_APPLICATION_PATH/rgb_combination/hist_minmax.py "${outProdTIF}" "${stackOrderRGB[$index]}" "${tmpProd_list[$index]}"_p2.tif
+			# Product I : histogram stretching between 0 and 3000 W.m-2.sr-1 (S2-RGB conversion) 
+			python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" 0 3000 "${tmpProd_list[$index]}"_p1.tif
+			
+			for ip in 1 2 3
+			do
+				gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" "${tmpProd_list[$index]}"_p$ip.tif "${outRGB_list[$index]}"_p$ip.tif
+        			returnCode=$?
+				[ $returnCode -eq 0 ] || return ${ERR_CONVERT}
+        	
+				#Add overviews
+        			gdaladdo -r average "${outRGB_list[$index]}"_p$ip.tif 2 4 8 16
+        			returnCode=$?
+        			[ $returnCode -eq 0 ] || return ${ERR_CONVERT}    
+		
+				# Create PNG output
+        			gdal_translate -ot Byte -of PNG "${outRGB_list[$index]}"_p$ip.tif "${outRGB_list[$index]}"_p$ip.png
+        	
+				#remove temp xml file produced together with png
+        			rm -f "${outRGB_list[$index]}"_p$ip.png.aux.xml
+        			# create properties file for phase tif product
+        			processingTime=$( date )
+				
+        			description="Individual band product"
+        			output_properties=$( propertiesFileCratorTIF  "${outRGB_list[$index]}"_p$ip.tif "${description}" "${inputfilesProp_list[$index]}" "${processingTime}" "${outRGB_list[$index]}"_p$ip.properties)
+			done
+		fi	
+	done
+nb_file = $(ls *p2.tif | wc -l)
+if [$nb_file -eq 0]; then nb_file = 3
+else nb_file = 1
+fi
+# merge radiometric enhanced bands
+for ind in `seq 1 $nb_file`;
+do
+    	gdal_merge.py -separate -n 0 -a_nodata 0 -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" "temp-outputfile_band_r_p"$ind".tif" "temp-outputfile_band_g_p"$ind".tif" "temp-outputfile_band_b_p"$ind".tif" -o temp-outputfile.tif
+    	#remove temp files
+    	rm temp-outputfile_band_r_p$ind.tif temp-outputfile_band_g_p$ind.tif temp-outputfile_band_b_p$ind.tif
+    	#re-projection
+    	gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" temp-outputfile.tif ${outputRGB}_p$ind.tif
+    	returnCode=$?
+    	[ $returnCode -eq 0 ] || return ${ERR_CONVERT}
+    	#Remove temporary file
+    	rm -f temp-outputfile.tif
+    	#Add overviews
+    	gdaladdo -r average ${outputRGB}_p$ind.tif 2 4 8 16
+    	returnCode=$?
+    	[ $returnCode -eq 0 ] || return ${ERR_CONVERT}    
+    	# Create PNG output
+    	gdal_translate -ot Byte -of PNG ${outputRGB}p$ind.tif ${outputRGB}_p$ind.png
+    	#remove temp xml file produced together with png
+    	rm -f ${outputRGB}_p$ind.png.aux.xml
+    	# create properties file for phase tif product
+    	processingTime=$( date )
+	if [ind -eq 1]; then description="RGB combination - linear stretch between fixed values"
 		fi
-	    #re-projection
-        gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" "${tmpProd_list[$index]}" "${outRGB_list[$index]}".tif
-        returnCode=$?
-        [ $returnCode -eq 0 ] || return ${ERR_CONVERT}
-        #Add overviews
-        gdaladdo -r average "${outRGB_list[$index]}".tif 2 4 8 16
-        returnCode=$?
-        [ $returnCode -eq 0 ] || return ${ERR_CONVERT}    
-        # Create PNG output
-        gdal_translate -ot Byte -of PNG "${outRGB_list[$index]}".tif "${outRGB_list[$index]}".png
-        #remove temp xml file produced together with png
-        rm -f "${outRGB_list[$index]}".png.aux.xml
-        # create properties file for phase tif product
-        processingTime=$( date )
-        description="Individual band product"
-        output_properties=$( propertiesFileCratorTIF  "${outRGB_list[$index]}".tif "${description}" "${inputfilesProp_list[$index]}" "${processingTime}" "${outRGB_list[$index]}".properties )         
+	if [ind -eq 2]; then description="RGB combination - linear stretch between Min and Max"
+		fi
+	if [ind -eq 3]; then description="RGB combination - linear stretch between 0 and 96%"
+		fi
+    	output_properties=$( propertiesFileCratorTIF  "${outputRGB}"_p$ind.tif "${description}" "${prodList_prop}" "${processingTime}" "${outputRGB}"_p$ind.properties )
+    	# report activity in the log
+    	ciop-log "DEBUG" "Properties file created: ${output_properties}"
     done
-    # merge radiometric enhanced bands
-    gdal_merge.py -separate -n 0 -a_nodata 0 -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" "temp-outputfile_band_r.tif" "temp-outputfile_band_g.tif" "temp-outputfile_band_b.tif" -o temp-outputfile.tif
-    #remove temp files
-    rm temp-outputfile_band_r.tif temp-outputfile_band_g.tif temp-outputfile_band_b.tif
-    #re-projection
-    gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" temp-outputfile.tif ${outputRGB}.tif
-    returnCode=$?
-    [ $returnCode -eq 0 ] || return ${ERR_CONVERT}
-    #Remove temporary file
-    rm -f temp-outputfile.tif
-    #Add overviews
-    gdaladdo -r average ${outputRGB}.tif 2 4 8 16
-    returnCode=$?
-    [ $returnCode -eq 0 ] || return ${ERR_CONVERT}    
-    # Create PNG output
-    gdal_translate -ot Byte -of PNG ${outputRGB}.tif ${outputRGB}.png
-    #remove temp xml file produced together with png
-    rm -f ${outputRGB}.png.aux.xml
-    # create properties file for phase tif product
-    processingTime=$( date )
-    description="RGB combination"
-    output_properties=$( propertiesFileCratorTIF  "${outputRGB}".tif "${description}" "${prodList_prop}" "${processingTime}" "${outputRGB}".properties )
-    # report activity in the log
-    ciop-log "DEBUG" "Properties file created: ${output_properties}"
-    # publish the coergistered product
-    ciop-log "INFO" "Publishing Output Products"
-    ciop-publish -m "${OUTPUTDIR}"/*
+	
+# publish the coergistered product
+ciop-log "INFO" "Publishing Output Products"
+ciop-publish -m "${OUTPUTDIR}"/*
+	
+##### End changes
 
     # cleanup
     rm -rf "${INPUTDIR}"/* "${TMPDIR}"/* "${OUTPUTDIR}"/*
