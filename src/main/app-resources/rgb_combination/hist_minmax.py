@@ -29,7 +29,7 @@ def hist_skip(inFname, bandIndex, outFname, nbuckets=10000):
   os.system("rm gdal_calc_result.tif")
   
   #return (vals, percentiles)
-
+  return 0;
 
 # Invoke as: `python hist_skip.py my-raster.tif`.
 if __name__ == '__main__':
