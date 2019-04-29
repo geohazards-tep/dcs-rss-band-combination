@@ -4,7 +4,6 @@ import os
 
 
 def hist_skip(inFname, bandIndex, outFname, nbuckets=10000):
- 
   src = gdal.Open(inFname)
   band = src.GetRasterBand(int(bandIndex))
   percentiles = [ float(percentileMin), float(percentileMax) ]
@@ -29,14 +28,14 @@ def hist_skip(inFname, bandIndex, outFname, nbuckets=10000):
   # remove temp file
   os.system("rm gdal_calc_result.tif")
   
-  return (vals, percentiles)
+  #return (vals, percentiles)
 
 
 # Invoke as: `python hist_skip.py my-raster.tif`.
 if __name__ == '__main__':
   import sys
-
+  
   if len(sys.argv) == 6:
     hist_skip(sys.argv[1],sys.argv[2],sys.argv[3],sys.argv[4],sys.argv[5])
   else:
-print "python hist_skip.py INPUT-RASTER BAND-INDEX PERCENTILE-MIN PERCENTILE-MAX OUTPUT-RASTER"
+    print "python hist_skip.py INPUT-RASTER BAND-INDEX PERCENTILE-MIN PERCENTILE-MAX OUTPUT-RASTER"
