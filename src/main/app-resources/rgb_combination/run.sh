@@ -495,9 +495,10 @@ function main()
 	        	python $_CIOP_APPLICATION_PATH/rgb_combination/hist_skip_no_zero.py "${outProdTIF}" "${stackOrderRGB[$index]}" 2 96 "${tmpProd_list[$index]}"_p1.tif
 			# Product II : histogram stretching between min and max 
 			python $_CIOP_APPLICATION_PATH/rgb_combination/hist_minmax.py "${outProdTIF}" "${stackOrderRGB[$index]}" "${tmpProd_list[$index]}"_p2.tif
+			
 			if [ ${mission} = "Sentinel-2"  ]; then
 			# Product III : histogram stretching between 0 and 3000 W.m-2.sr-1 (S2-RGB conversion) 
-			python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" 0 3000 "${tmpProd_list[$index]}"_p3.tif
+				python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" 0 3000 "${tmpProd_list[$index]}"_p3.tif
 			fi
 			N = `ls ${tmpProd_list[$index]}_p*.tif | wc -l`;
 			
