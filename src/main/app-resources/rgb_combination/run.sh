@@ -491,14 +491,17 @@ function main()
         	output_properties=$( propertiesFileCratorTIF  "${outRGB_list[$index]}"_p1.tif "${description}" "${inputfilesProp_list[$index]}" "${processingTime}" "${outRGB_list[$index]}"_p1.properties )         
 	
 		else	
-			# Product III : histogram stretching between 0 and 96% (initial COMBI solution) 
-	        	python $_CIOP_APPLICATION_PATH/rgb_combination/hist_skip_no_zero.py "${outProdTIF}" "${stackOrderRGB[$index]}" 2 96 "${tmpProd_list[$index]}"_p3.tif
+			# Product I : histogram stretching between 0 and 96% (initial COMBI solution) 
+	        	python $_CIOP_APPLICATION_PATH/rgb_combination/hist_skip_no_zero.py "${outProdTIF}" "${stackOrderRGB[$index]}" 2 96 "${tmpProd_list[$index]}"_p1.tif
 			# Product II : histogram stretching between min and max 
 			python $_CIOP_APPLICATION_PATH/rgb_combination/hist_minmax.py "${outProdTIF}" "${stackOrderRGB[$index]}" "${tmpProd_list[$index]}"_p2.tif
-			# Product I : histogram stretching between 0 and 3000 W.m-2.sr-1 (S2-RGB conversion) 
-			python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" 0 3000 "${tmpProd_list[$index]}"_p1.tif
+			if [ ${mission} = "Sentinel-2"  ]; then
+			# Product III : histogram stretching between 0 and 3000 W.m-2.sr-1 (S2-RGB conversion) 
+			python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" 0 3000 "${tmpProd_list[$index]}"_p3.tif
+			fi
+			N = `ls ${tmpProd_list[$index]}_p*.tif | wc -l`;
 			
-			for ip in 1 2 3
+			for ip in {1..N}
 			do
 				gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" "${tmpProd_list[$index]}"_p$ip.tif "${outRGB_list[$index]}"_p$ip.tif
         			returnCode=$?
@@ -522,12 +525,9 @@ function main()
 			done
 		fi	
 	done
-nb_file = $(ls *p2.tif | wc -l)
-if [$nb_file -eq 0]; then nb_file = 3
-else nb_file = 1
-fi
+
 # merge radiometric enhanced bands
-for ind in `seq 1 $nb_file`;
+for ind in {1..N};
 do
     	gdal_merge.py -separate -n 0 -a_nodata 0 -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" "temp-outputfile_band_r_p"$ind".tif" "temp-outputfile_band_g_p"$ind".tif" "temp-outputfile_band_b_p"$ind".tif" -o temp-outputfile.tif
     	#remove temp files
