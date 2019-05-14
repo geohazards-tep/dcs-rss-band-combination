@@ -195,7 +195,9 @@ case "$mission" in
     "Sentinel-2")
         echo "S2"
         ;;
-
+    "Sentinel-3")
+	echo "S3"
+	;;
     "UK-DMC2")
         echo "UKDMC2"
         ;;
