@@ -111,7 +111,17 @@ function check_product_type() {
       [ $prodTypeName != "MSIL1C" ] && return $ERR_WRONGPRODTYPE
       
   fi
+  
+  if [ ${mission} = "Sentinel-3" ] ; then
+      ciop-log "INFO" "retrieved product is ${productName}"
 
+      prodTypeName=$( echo ${productName:9:3} )
+      ciop-log "INFO" "retrieved product is type: ${prodTypeName}"
+      if [ $prodTypeName != "EFR" ] && [ $prodTypeName != "ERR" ]; then
+          return $ERR_WRONGPRODTYPE
+      fi
+
+  fi
 
   if [[ "${mission}" == "UK-DMC2" ]]; then
       if [[ -d "${retrievedProduct}" ]]; then
@@ -343,6 +353,8 @@ function mission_prod_retrieval(){
     [ "${prod_basename_substr_3}" = "S1B" ] && mission="Sentinel-1"
     [ "${prod_basename_substr_3}" = "S2A" ] && mission="Sentinel-2"
     [ "${prod_basename_substr_3}" = "S2B" ] && mission="Sentinel-2"
+    [ "${prod_basename_substr_3}" = "S3A" ] && mission="Sentinel-3"
+    [ "${prod_basename_substr_3}" = "S3B" ] && mission="Sentinel-3"
     [ "${prod_basename_substr_3}" = "K5_" ] && mission="Kompsat-5"
     [ "${prod_basename_substr_3}" = "K3_" ] && mission="Kompsat-3"
     [ "${prod_basename_substr_3}" = "LC8" ] && mission="Landsat-8"
@@ -440,6 +452,16 @@ case "$mission" in
         "Sentinel-2")
             echo 10
             ;;
+
+	"Sentinel-3")
+	    if [ "${prodType}" == "EFR" ]; then
+		echo 300
+	    elif [ "${prodType}" == "ERR" ]; then
+	    	echo 1200
+	    else 
+		return ${ERR_GETPIXELSPACING}
+	    fi
+	    ;;
 
         "UK-DMC2")
             echo 22
@@ -637,6 +659,12 @@ case "$mission" in
             return $?
             ;;
 
+	"Sentinel-3")
+            pre_processing_s3 "${prodname}" "${pixelSpacing}" "${pixelSpacingMaster}" "${performCropping}" "${subsettingBoxWKT}"
+            return $?
+            ;;
+	
+
         "UK-DMC2")
             pre_processing_ukdmc2 "${prodname}" "${pixelSpacing}" "${pixelSpacingMaster}" "${performCropping}" "${subsettingBoxWKT}"
             return $?
@@ -756,7 +784,9 @@ case "$mission" in
         "Sentinel-2")
 	    bandListCsv="B1,B2,B3,B4,B5,B6,B7,B8,B8A,B9,B10,B11,B12"
             ;;
-
+	"Sentinel-3")
+	    bandListCsv="Oa01_radiance,Oa02_radiance,Oa03_radiance,Oa04_radiance,Oa05_radiance,Oa06_radiance,Oa07_radiance,Oa08_radiance,Oa09_radiance,Oa10_radiance,Oa11_radiance,Oa12_radiance,Oa13_radiance,Oa14_radiance,Oa15_radiance,Oa16_radiance,Oa17_radiance,Oa18_radiance,Oa19_radiance,Oa20_radiance,Oa21_radiance"
+	    ;;
         "UK-DMC2")
 	    bandListCsv="NIR,Red,Green"
             ;;
@@ -1708,6 +1738,72 @@ fi
 
 }
 
+function pre_processing_s3() {
+# function call pre_processing_s3 "${prodname}" "${pixelSpacing}" "${pixelSpacingMaster}" "${performCropping}" "${subsettingBoxWKT}"
+
+inputNum=$#
+[ "$inputNum" -ne 5 ] && return ${ERR_PREPROCESS}
+
+local retrievedProduct=$1
+local pixelSpacing=$2
+local pixelSpacingMaster=$3
+local performCropping=$4
+local subsettingBoxWKT=$5
+local prodname=""
+unzippedFolder=$(ls $retrievedProduct)
+# log the value, it helps debugging.
+# the log entry is available in the process stderr
+ciop-log "DEBUG" "unzippedFolder: ${unzippedFolder}"
+# retrieved product pointing to the unzipped folder
+prodname=$retrievedProduct/$unzippedFolder
+
+#get full path of S3 product metadata xml file
+# check if it is like S3?_*.xml
+s3_xml=$(find ${prodname}/ -name '*.xml')
+
+# use the greter pixel spacing as target spacing (in order to downsample if needed, upsampling always avoided)
+local target_spacing=$( get_greater_pixel_spacing ${pixelSpacing} ${pixelSpacingMaster} )
+
+prodBasename=$(basename ${prodname})
+outProdBasename=${prodBasename}_pre_proc
+outProd=${OUTPUTDIR_PRE_PROC}/${outProdBasename}
+
+# report activity in the log
+ciop-log "INFO" "Preparing SNAP request file for Sentinel 2 data pre processing"
+# source bands list for Sentinel 2
+sourceBandsList=$(get_band_list "${prodBasename}" "Sentinel-3" )
+# resample flag always true because S2 contains bands with differnt sampling steps
+performResample="true"
+# prepare the SNAP request
+SNAP_REQUEST=$( create_snap_request_rsmpl_rprj_sbs_s3 "${s3_xml}" "${performResample}" "${target_spacing}" "${performCropping}" "${subsettingBoxWKT}" "${sourceBandsList}" "${outProd}")
+[ $? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
+[ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST}
+# report activity in the log
+ciop-log "INFO" "Generated request file: ${SNAP_REQUEST}"
+
+# report activity in the log
+ciop-log "INFO" "Invoking SNAP-gpt on the generated request file for Sentinel 3 data pre processing"
+
+# invoke the ESA SNAP toolbox
+gpt $SNAP_REQUEST -c "${CACHE_SIZE}" 2> log.txt
+returncode=$?
+test_txt=$(cat log.txt | grep "No intersection")
+rm log.txt
+# catch proper error if any
+if [ $returncode -eq 0 ] ; then
+    # no error case
+    return 0
+else
+    if [[ "${test_txt}" != "" ]]; then
+        # error due to void intersection between user AOI and data
+        return $ERR_AOI
+    else
+        # generic snap-gpt execution error
+        return $ERR_SNAP
+    fi
+fi
+
+}
 
 # UKDMC2 pre processing function
 function pre_processing_ukdmc2() {
@@ -2012,10 +2108,11 @@ elif [ ${mission} = "Kompsat-2" ]; then
         fi      
     done
 elif [ ${mission} = "Kompsat-3" ]; then
-    ls "${prodname}"/K3_*_L1G_R*.tif > $tifList
-    ls "${prodname}"/K3_*_L1G_G*.tif >> $tifList
-    ls "${prodname}"/K3_*_L1G_B*.tif >> $tifList
-    ls "${prodname}"/K3_*_L1G_N*.tif >> $tifList
+    find "${prodname}" -name 'K3_*_L1G_R*.tif' > $tifList
+    find "${prodname}" -name 'K3_*_L1G_G*.tif' >> $tifList
+    find "${prodname}" -name 'K3_*_L1G_B*.tif' >> $tifList
+    find "${prodname}" -name 'K3_*_L1G_N*.tif' >> $tifList
+
 elif [ ${mission} = "VRSS1" ]; then
     #Check if downloaded product is compressed and extract it (in tar is not automatically extracted, otherwise yes)
     ext="${prodname##*/}"; ext="${ext#*.}"
@@ -3289,6 +3386,204 @@ EOF
     } || return ${SNAP_REQUEST_ERROR}
 }
 
+function create_snap_request_rsmpl_rprj_sbs_s3() {
+
+# function call create_snap_request_rsmpl_rprj_sbs "${prodname}" "${performResample}" "${target_spacing}" "${performCropping}" "${subsettingBoxWKT}" "${sourceBandsList}" "${outProd}"
+
+# function which creates the actual request from
+# a template and returns the path to the request
+
+inputNum=$#
+[ "$inputNum" -ne 7 ] && return ${ERR_PREPROCESS}
+
+local prodname=$1
+local performResample=$2
+local target_spacing=$3
+local performCropping=$4
+local subsettingBoxWKT=$5
+local sourceBandsList=$6
+local outprod=$7
+# perform ceiling on target_spacing (resampling needs integer spacing)
+local pixelSpacing_floor=$(echo "scale=0; $target_spacing/1" | bc )
+(( $(bc <<< "$pixelSpacing_floor == $target_spacing") )) || let "target_spacing=pixelSpacing_floor+1" 
+
+local commentRsmpBegin=""
+local commentRsmpEnd=""
+local commentReadSrcBegin=""
+local commentReadSrcEnd=""
+local commentSbsBegin=""
+local commentSbsEnd=""
+local commentMlBegin=""
+local commentMlEnd=""
+local commentProjSrcBegin=""
+local commentProjSrcEnd=""
+
+local beginCommentXML="<!--"
+local endCommentXML="-->"
+
+# check for resampling operator usage
+if [ "${performResample}" = false ] ; then
+    commentRsmpBegin="${beginCommentXML}"
+    commentRsmpEnd="${endCommentXML}"
+else
+    commentReadSrcBegin="${beginCommentXML}"
+    commentReadSrcEnd="${endCommentXML}"
+fi
+# check for subset operator usage
+if [ "${performCropping}" = false ] ; then
+    commentSbsBegin="${beginCommentXML}"
+    commentSbsEnd="${endCommentXML}"
+else
+    commentProjSrcBegin="${beginCommentXML}"
+    commentProjSrcEnd="${endCommentXML}"
+fi
+
+#sets the output filename
+snap_request_filename="${TMPDIR}/$( uuidgen ).xml"
+
+   cat << EOF > ${snap_request_filename}
+<graph id="Graph">
+  <version>1.0</version>
+  <node id="Read">
+    <operator>Read</operator>
+    <sources/>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <file>${prodname}</file>
+    </parameters>
+  </node>
+  <node id="Reproject">
+    <operator>Reproject</operator>
+    <sources>
+      <sourceProduct refid="Read"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <wktFile/>
+      <crs>PROJCS[&quot;WGS 84 / Pseudo-Mercator&quot;, &#xd;
+  GEOGCS[&quot;WGS 84&quot;, &#xd;
+    DATUM[&quot;World Geodetic System 1984&quot;, &#xd;
+      SPHEROID[&quot;WGS 84&quot;, 6378137.0, 298.257223563, AUTHORITY[&quot;EPSG&quot;,&quot;7030&quot;]], &#xd;
+      AUTHORITY[&quot;EPSG&quot;,&quot;6326&quot;]], &#xd;
+    PRIMEM[&quot;Greenwich&quot;, 0.0, AUTHORITY[&quot;EPSG&quot;,&quot;8901&quot;]], &#xd;
+    UNIT[&quot;degree&quot;, 0.017453292519943295], &#xd;
+    AXIS[&quot;Geodetic longitude&quot;, EAST], &#xd;
+    AXIS[&quot;Geodetic latitude&quot;, NORTH], &#xd;
+    AUTHORITY[&quot;EPSG&quot;,&quot;4326&quot;]], &#xd;
+  PROJECTION[&quot;Popular Visualisation Pseudo Mercator&quot;, AUTHORITY[&quot;EPSG&quot;,&quot;1024&quot;]], &#xd;
+  PARAMETER[&quot;semi_minor&quot;, 6378137.0], &#xd;
+  PARAMETER[&quot;latitude_of_origin&quot;, 0.0], &#xd;
+  PARAMETER[&quot;central_meridian&quot;, 0.0], &#xd;
+  PARAMETER[&quot;scale_factor&quot;, 1.0], &#xd;
+  PARAMETER[&quot;false_easting&quot;, 0.0], &#xd;
+  PARAMETER[&quot;false_northing&quot;, 0.0], &#xd;
+  UNIT[&quot;m&quot;, 1.0], &#xd;
+  AXIS[&quot;Easting&quot;, EAST], &#xd;
+  AXIS[&quot;Northing&quot;, NORTH], &#xd;
+  AUTHORITY[&quot;EPSG&quot;,&quot;3857&quot;]]</crs>
+      <resampling>Nearest</resampling>
+      <referencePixelX/>
+      <referencePixelY/>
+      <easting/>
+      <northing/>
+      <orientation/>
+      <pixelSizeX/>
+      <pixelSizeY/>
+      <width/>
+      <height/>
+      <tileSizeX/>
+      <tileSizeY/>
+      <orthorectify>false</orthorectify>
+      <elevationModelName/>
+      <noDataValue>NaN</noDataValue>
+      <includeTiePointGrids>true</includeTiePointGrids>
+      <addDeltaBands>false</addDeltaBands>
+    </parameters>
+  </node>
+${commentRsmpBegin}  <node id="Resample">
+    <operator>Resample</operator>
+    <sources>
+      <sourceProduct refid="Reproject"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <referenceBand/>
+      <targetWidth/>
+      <targetHeight/>
+      <targetResolution>${target_spacing}</targetResolution>
+      <upsampling>Nearest</upsampling>
+      <downsampling>First</downsampling>
+      <flagDownsampling>First</flagDownsampling>
+      <resampleOnPyramidLevels>true</resampleOnPyramidLevels>
+    </parameters>
+  </node> ${commentRsmpEnd}
+${commentSbsBegin}   <node id="Subset">
+    <operator>Subset</operator>
+    <sources>
+${commentRsmpBegin}      <sourceProduct refid="Resample"/> ${commentRsmpEnd}  ${commentSbsEnd}
+${commentReadSrcBegin}   <sourceProduct refid="Reproject"/> ${commentReadSrcEnd}
+${commentSbsBegin}     </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <sourceBands/>
+      <region/>
+      <geoRegion>${subsettingBoxWKT}</geoRegion>
+      <subSamplingX>1</subSamplingX>
+      <subSamplingY>1</subSamplingY>
+      <fullSwath>false</fullSwath>
+      <tiePointGridNames/>
+      <copyMetadata>true</copyMetadata>
+    </parameters>
+  </node> ${commentSbsEnd}
+  <node id="BandSelect">
+    <operator>BandSelect</operator>
+    <sources>
+	  ${commentSbsBegin} <sourceProduct refid="Subset"/> ${commentSbsEnd}
+	  ${commentRsmpBegin}      <sourceProduct refid="Resample"/> ${commentRsmpEnd}
+
+ ${commentReadSrcBegin}     ${commentProjSrcBegin} <sourceProduct refid="Reproject"/> ${commentProjSrcEnd} ${commentReadSrcEnd}
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <selectedPolarisations/>
+      <sourceBands>${sourceBandsList}</sourceBands>
+      <bandNamePattern/>
+    </parameters>
+  </node>
+  <node id="Write">
+    <operator>Write</operator>
+    <sources>
+      <sourceProduct refid="BandSelect"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <file>${outprod}.dim</file>
+      <formatName>BEAM-DIMAP</formatName>
+    </parameters>
+  </node>
+  <applicationData id="Presentation">
+    <Description/>
+    <node id="Read">
+            <displayPosition x="37.0" y="134.0"/>
+    </node>
+    <node id="Reproject">
+      <displayPosition x="148.0" y="135.0"/>
+    </node>
+    <node id="Resample">
+      <displayPosition x="250.0" y="129.0"/>
+    </node>
+    <node id="Subset">
+      <displayPosition x="347.0" y="126.0"/>
+    </node>
+    <node id="BandSelect">
+      <displayPosition x="472.0" y="133.0"/>
+    </node>
+    <node id="Write">
+            <displayPosition x="610.0" y="134.0"/>
+    </node>
+  </applicationData>
+</graph>
+EOF
+
+    [ $? -eq 0 ] && {
+        echo "${snap_request_filename}"
+        return 0
+    } || return ${SNAP_REQUEST_ERROR}
+}
 
 # function that extracts the required band from input pre-processed product  
 function band_selection(){
