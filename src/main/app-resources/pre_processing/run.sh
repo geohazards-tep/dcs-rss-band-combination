@@ -1770,7 +1770,7 @@ outProdBasename=${prodBasename}_pre_proc
 outProd=${OUTPUTDIR_PRE_PROC}/${outProdBasename}
 
 # report activity in the log
-ciop-log "INFO" "Preparing SNAP request file for Sentinel 2 data pre processing"
+ciop-log "INFO" "Preparing SNAP request file for Sentinel 3 data pre processing"
 # source bands list for Sentinel 2
 sourceBandsList=$(get_band_list "${prodBasename}" "Sentinel-3" )
 # resample flag always true because S2 contains bands with differnt sampling steps
@@ -3536,9 +3536,7 @@ ${commentSbsBegin}     </sources>
     <operator>BandSelect</operator>
     <sources>
 	  ${commentSbsBegin} <sourceProduct refid="Subset"/> ${commentSbsEnd}
-	  ${commentRsmpBegin}      <sourceProduct refid="Resample"/> ${commentRsmpEnd}
-
- ${commentReadSrcBegin}     ${commentProjSrcBegin} <sourceProduct refid="Reproject"/> ${commentProjSrcEnd} ${commentReadSrcEnd}
+    ${commentProjSrcBegin}    <sourceProduct refid="Resample"/> ${commentProjSrcEnd}
     </sources>
     <parameters class="com.bc.ceres.binding.dom.XppDomElement">
       <selectedPolarisations/>
@@ -3848,14 +3846,22 @@ function main() {
     # the log entry is available in the process stderr
     ciop-log "DEBUG" "Blue band identifier provided: ${blueBandIndex}"
     # retrieve the parameters value from workflow or job default value
-    performCropping="`ciop-getparam performCropping`"
+    #performCropping="`ciop-getparam performCropping`"
     # log the value, it helps debugging.
     # the log entry is available in the process stderr
-    ciop-log "DEBUG" "The performCropping flag is set to ${performCropping}"
+    #ciop-log "DEBUG" "The performCropping flag is set to ${performCropping}"
     # retrieve the parameters value from workflow or job default value
     SubsetBoundingBox="`ciop-getparam SubsetBoundingBox`"
     # log the value, it helps debugging.
     # the log entry is available in the process stderr
+    if [ -z "$SubsetBoundingBox" ]
+    then
+	performCropping=false
+    else
+	performCropping=true
+    fi
+    ciop-log "DEBUG" "The performCropping flag is set to ${performCropping}"
+
     ciop-log "DEBUG" "The selected subset bounding box data is: ${SubsetBoundingBox}"
     ### SUBSETTING BOUNDING BOX DEFINITION IN WKT FORMAT
     local subsettingBoxWKT="POLYGON ((-180 -90, 180 -90, 180 90, -180 90, -180 -90))"
