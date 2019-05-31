@@ -3536,7 +3536,7 @@ ${commentSbsBegin}     </sources>
     <operator>BandSelect</operator>
     <sources>
 	  ${commentSbsBegin} <sourceProduct refid="Subset"/> ${commentSbsEnd}
-    ${commentProjSrcBegin}    <sourceProduct refid="Resample"/> ${commentProjSrcEnd}
+   ${commentProjSrcBegin}    <sourceProduct refid="Resample"/> ${commentProjSrcEnd}
     </sources>
     <parameters class="com.bc.ceres.binding.dom.XppDomElement">
       <selectedPolarisations/>
@@ -3854,8 +3854,8 @@ function main() {
     SubsetBoundingBox="`ciop-getparam SubsetBoundingBox`"
     # log the value, it helps debugging.
     # the log entry is available in the process stderr
-    if [ -z "$SubsetBoundingBox" ]
-    then
+    
+    if [ -z "$SubsetBoundingBox" ] ; then
 	performCropping=false
     else
 	performCropping=true
