@@ -790,13 +790,14 @@ case "$mission" in
         "UK-DMC2")
 	    bandListCsv="NIR,Red,Green"
             ;;
-
+         
+         # Fix for ticket #7537 - reordered bands list according to KS2 product channels spec : MS1 (Green), MS2 (Blue), MS3 (NIR), MS4 
         "Kompsat-2")
-	    bandListCsv="${prodname}_R,${prodname}_G,${prodname}_B,${prodname}_N"
+	    bandListCsv="${prodname}_G,${prodname}_B,${prodname}_N,${prodname}_R"
             ;;
 
         "Kompsat-3")
-	    bandListCsv="${prodname}_R,${prodname}_G,${prodname}_B,${prodname}_N"
+	    bandListCsv="${prodname}_G,${prodname}_B,${prodname}_R,${prodname}_N"
             ;;
 
         "Landsat-8")
