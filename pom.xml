@@ -11,7 +11,7 @@
     <version>2.0.0</version>
   </parent>
   <description>The Band Combination on-demand processing service provides RGB band combination from user defined bands of single or multiple EO data products. All bands are in their native format (no radiometric correction applied) thus can serve only for fast screening of the data, not for further processing.</description>
-  <version>1.39.0-SNAPSHOT</version>
+  <version>1.39.1-SNAPSHOT</version>
   <properties>
     <summary>Band combination</summary>
     <description>The Band Combination on-demand processing service provides RGB band combination from user defined bands of single or multiple EO data products. All bands are in their native format (no radiometric correction applied) thus can serve only for fast screening of the data, not for further processing.</description>
