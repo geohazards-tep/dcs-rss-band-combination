@@ -2273,7 +2273,7 @@ ciop-log "INFO" "Products stacking"
 # output product name
 outProdStack=${TMPDIR}/stack_product
 # customized processing for kompsat-2 and VRSS1 because snap fails
-if [ ${mission} = "Kompsat-2" ] || [ ${mission} = "VRSS1" ] ; then
+if [ ${mission} = "Kompsat-2" ] || [ ${mission} = "VRSS1" ]  || [ ${mission} = "Kompsat-3" ] ; then
     # convert file list from comma separted values to space separated values
     filesListSsv=$( echo "${filesListCSV}" | sed 's|,| |g' )
     # convert ssv to array
