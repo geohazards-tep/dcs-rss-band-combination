@@ -324,8 +324,11 @@ function main()
         # get name of uncompressed product in DIM format
         # NOTE: for each loop step, the TMPDIR is cleansd, so the unique product contained is the current one
         inputDIM=$( ls *.dim)
+	cloudTIF=$( ls *.tif)
         # move current dim product to input dir
+ 	ciop-log "INFO" "Tif retrieved is ${cloudTIF}"
         mv *.d* $INPUTDIR
+        mv *.tif $OUTPUTDIR/ 
         # full path of input dim product after move
         inputDIM=${INPUTDIR}/${inputDIM}
         # get name of properties product
