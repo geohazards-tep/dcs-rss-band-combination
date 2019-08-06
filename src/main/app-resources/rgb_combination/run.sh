@@ -503,6 +503,9 @@ function main()
 		if [ ${polType} = "DH" ] || [ ${polType} = "DV" ] && [ ${bandnumber} = "2" ]; then
 			python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" -25 5 "${tmpProd_list[$index]}"
 			ciop-log "DEBUG" "Chosen for -25 5 scaling because: Pol: ${polType},Band: ${bandnumber} and Mission: ${mission}"
+		elif [ ${polType} = "SH" ] || [ ${polType} = "DH" ] && [ ${bandnumber} = "1" ]; then
+			python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" -25 5 "${tmpProd_list[$index]}"
+                        ciop-log "DEBUG" "Chosen for -25 5 scaling because: Pol: ${polType},Band: ${bandnumber} and Mission: ${mission}"
 		else
 			python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" -15 5 "${tmpProd_list[$index]}"
 			ciop-log "DEBUG" "Chosen for -15 5 scaling because: Pol: ${polType},Band: ${bandnumber} and Mission: ${mission}"
