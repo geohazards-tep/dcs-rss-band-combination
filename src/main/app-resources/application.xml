@@ -60,7 +60,7 @@
       </defaultJobconf>
     </jobTemplate>
   </jobTemplates>
-  <workflow id="band-combination" title="Band combination" abstract="The Band Combination on-demand processing service provides RGB band combination from user defined bands of single or multiple EO data products. All bands are in their native format (no radiometric correction applied) thus can serve only for fast screening of the data, not for further processing.">
+  <workflow id="band-combination" title="Band combination" abstract="The Band Combination on-demand processing service provides RGB band combination from user defined bands of single or multiple EO data products. All bands are in their native format (no radiometric correction applied) thus can serve only for fast screening of the data, not for further processing. The service supports optical and SAR detected products from the following missions: Pleiades 1A/1B, SPOT-6/-7, Sentinel-2 (L1C), Landsat 8, UK-DMC 2, Kompsat-2/-3, Kanopus-V, Resurs-P, Terrasar-X, Sentinel-1, ALOS, ALOS-2, Radarsat-2, Rapideye, Deimos-1, VRSS1, GF-2, Kompsat-5, Sentinel-3 (EFR and ERR).">
     <workflowVersion>1.0</workflowVersion>
     <node id="node_pre_processing">
       <job id="pre_processing"/>

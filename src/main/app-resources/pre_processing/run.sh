@@ -1787,7 +1787,7 @@ ciop-log "INFO" "Invoking SNAP-gpt on the generated request file for producing a
 gpt $SNAP_REQUEST_cloudcover -c "${CACHE_SIZE}" &> /dev/null
 # check the exit code
 [ $? -eq 0 ] || return $ERR_SNAP
-gdal_translate -ot Byte -of GTiff -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=MINISBLACK" ${cloudcoverProduct} ${CloudcoverFinalProduct}
+gdal_translate -ot Byte -of GTiff -a_nodata 0 -co "ALPHA=YES"  -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=MINISBLACK" ${cloudcoverProduct} ${CloudcoverFinalProduct}
 #gdalwarp -ot Byte -t_srs EPSG:3857 -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=MINISBLACK" temp-outputfile2.tif ${CloudcoverFinalProduct}
 gdaladdo -r average ${CloudcoverFinalProduct} 2 4 8 16
 

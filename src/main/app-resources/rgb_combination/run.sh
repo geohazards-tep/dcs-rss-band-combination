@@ -174,6 +174,26 @@ EOF
 
 }
 
+function get_polarization_s1() {
+
+  local productName=$1
+
+  #productName assumed like S1A_IW_SLC__1SPP_* where PP is the polarization to be extracted
+
+  polarizationName=$( echo ${productName:14:2} )
+  [ -z "${polarizationName}" ] && return ${ERR_GETPOLARIZATION}
+
+  #check on extracted polarization
+  # allowed values are: SH SV DH DV
+  if [ "${polarizationName}" = "DH" ] || [ "${polarizationName}" = "DV" ] || [ "${polarizationName}" = "SH" ] || [ "${polarizationName}" = "SV" ]; then
+     echo ${polarizationName}
+     return 0
+  else
+     return ${ERR_WRONGPOLARIZATION}
+  fi
+}
+
+
 
 # function that get the complete mission name and returns its short version 
 function getMissionShortId()
@@ -417,6 +437,7 @@ function main()
                 ;;
         esac
         # report activity in the log
+	ciop-log "DEBUG" "Prodname = ${prodName}"
         ciop-log "DEBUG" "Mission ID: ${missionId}"
         mission_list+=("${missionId}")
 	missionShortId=$(getMissionShortId "${missionId}")
@@ -462,7 +483,7 @@ function main()
     ## RGB FULL RESOLUTION CREATION
     # report activity in the log
     ciop-log "INFO" "Full resolution RGB TIF visualization product creation"
-
+    
     #temporary tif files list
     declare -a tmpProd_list=("temp-outputfile_band_r.tif" "temp-outputfile_band_g.tif" "temp-outputfile_band_b.tif")
 	declare -a outRGB_list=("${OUTPUTDIR}/R_${missionShortId_list[0]}_${bandShortIndex_list[0]}" "${OUTPUTDIR}/G_${missionShortId_list[1]}_${bandShortIndex_list[1]}" "${OUTPUTDIR}/B_${missionShortId_list[2]}_${bandShortIndex_list[2]}")
@@ -471,10 +492,24 @@ function main()
     for index in `seq 0 $inputfilesNum`;
     do
         mission="${mission_list[$index]}"
+	bandnumber="${bandShortIndex_list[$index]}"
         # tailored enhancement for some SAR missions
-        if [ ${mission} = "Sentinel-1"  ] || [ ${mission} = "Radarsat-2" ]; then
+        if [ ${mission} = "Radarsat-2" ]; then
 	        #linear strecth between -15 dB and +5 dB
 	        python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" -15 5 "${tmpProd_list[$index]}"	
+	elif [ ${mission} = "Sentinel-1" ]; then
+		#Retrieve polarization type
+		polType=$( get_polarization_s1 "${prodName}" )
+		if [ ${polType} = "DH" ] || [ ${polType} = "DV" ] && [ ${bandnumber} = "2" ]; then
+			python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" -25 5 "${tmpProd_list[$index]}"
+			ciop-log "DEBUG" "Chosen for -25 5 scaling because: Pol: ${polType},Band: ${bandnumber} and Mission: ${mission}"
+		elif [ ${polType} = "SH" ] || [ ${polType} = "DH" ] && [ ${bandnumber} = "1" ]; then
+			python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" -25 5 "${tmpProd_list[$index]}"
+                        ciop-log "DEBUG" "Chosen for -25 5 scaling because: Pol: ${polType},Band: ${bandnumber} and Mission: ${mission}"
+		else
+			python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" -15 5 "${tmpProd_list[$index]}"
+			ciop-log "DEBUG" "Chosen for -15 5 scaling because: Pol: ${polType},Band: ${bandnumber} and Mission: ${mission}"
+		fi
 	    # generic enhancement for all the other missions
         else
             # histogram skip (percentiles from 2 to 96)
