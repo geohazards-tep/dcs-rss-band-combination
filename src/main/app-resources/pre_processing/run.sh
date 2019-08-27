@@ -1776,7 +1776,7 @@ cloudcoverProduct=${TMPDIR}/${productName_cloudcover}.tif
 CloudcoverFinalProduct=${OUTPUTDIR}/${productName_cloudcover}.tif
 ciop-log "INFO" "Creating snap request file for cloud geotiff with ${s3_xml} and ${cloudcoverProduct} to create ${CloudcoverFinalProduct}"
 #creation of snap request file for cloudcover geotiff
-SNAP_REQUEST_cloudcover=$( create_cloudcover_geotiff_S3 "${s3_xml}" "${cloudcoverProduct}" )
+SNAP_REQUEST_cloudcover=$( create_cloudcover_geotiff_S3 "${s3_xml}" "${cloudcoverProduct}" "${performCropping}" "${subsettingBoxWKT}" )
 #[$? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
 [ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST_cloudcover}
 # report activity in the log
@@ -1787,9 +1787,12 @@ ciop-log "INFO" "Invoking SNAP-gpt on the generated request file for producing a
 gpt $SNAP_REQUEST_cloudcover -c "${CACHE_SIZE}" &> /dev/null
 # check the exit code
 [ $? -eq 0 ] || return $ERR_SNAP
-gdal_translate -ot Byte -of GTiff -a_nodata 0 -co "ALPHA=YES"  -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=MINISBLACK" ${cloudcoverProduct} ${CloudcoverFinalProduct}
-#gdalwarp -ot Byte -t_srs EPSG:3857 -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=MINISBLACK" temp-outputfile2.tif ${CloudcoverFinalProduct}
+gdal_translate -ot Byte -of GTiff -a_nodata 0 -co "ALPHA=YES"  -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=MINISBLACK" ${cloudcoverProduct} temp-outputfile2.tif
+gdalwarp -srcnodata 0 -dstalpha -co "ALPHA=YES" temp-outputfile2.tif ${CloudcoverFinalProduct}
+
 gdaladdo -r average ${CloudcoverFinalProduct} 2 4 8 16
+
+rm ${pconvertOutRgbCompositeTIF} ${target} temp-outputfile.tif temp-outputfile2.tif
 
 
 # report activity in the log
@@ -3089,6 +3092,26 @@ function create_cloudcover_geotiff_S3() {
 
 local retrieved_xml=$1
 local outProd=$2
+local performcropping=$3
+local subsettingBoxWKT=$4
+
+local commentSbsBegin=""
+local commentSbsEnd=""
+local commentProjSrcBegin=""
+local commentProjSrcEnd=""
+
+local beginCommentXML="<!--"
+local endCommentXML="-->"
+
+if [ "${performCropping}" = false ] ; then
+    commentSbsBegin="${beginCommentXML}"
+    commentSbsEnd="${endCommentXML}"
+else
+    commentProjSrcBegin="${beginCommentXML}"
+    commentProjSrcEnd="${endCommentXML}"
+fi
+
+
 #sets the output filename
 snap_request_filename="${TMPDIR}/$( uuidgen ).xml"
 
@@ -3168,10 +3191,27 @@ snap_request_filename="${TMPDIR}/$( uuidgen ).xml"
       <variables/>
     </parameters>
   </node>
-  <node id="Write">
+${commentSbsBegin}   <node id="Subset">
+    <operator>Subset</operator>
+    <sources>
+	   <sourceProduct refid="BandMaths"/> 
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <sourceBands/>
+      <region/>
+      <geoRegion>${subsettingBoxWKT}</geoRegion>
+      <subSamplingX>1</subSamplingX>
+      <subSamplingY>1</subSamplingY>
+      <fullSwath>false</fullSwath>
+      <tiePointGridNames/>
+      <copyMetadata>true</copyMetadata>
+    </parameters>
+  </node> ${commentSbsEnd} 
+ <node id="Write">
     <operator>Write</operator>
     <sources>
-      <sourceProduct refid="BandMaths"/>
+   ${commentSbsBegin} <sourceProduct refid="Subset"/> ${commentSbsEnd}
+   ${commentProjSrcBegin}    <sourceProduct refid="BandMaths"/> ${commentProjSrcEnd}
     </sources>
     <parameters class="com.bc.ceres.binding.dom.XppDomElement">
       <file>${outProd}</file>
