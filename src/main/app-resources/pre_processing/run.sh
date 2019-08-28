@@ -2110,17 +2110,29 @@ elif [ ${mission} = "Kompsat-2" ]; then
     for bid in `seq 0 $numBands`; do
         local product2rename=""
         case "$bid" in
+#        "0")
+#            product2rename=$(find "${prodname}" -name 'MSC_*R_1G.tif')
+#            ;;
+#        "1")
+#            product2rename=$(find "${prodname}" -name 'MSC_*G_1G.tif')
+#            ;;
+#        "2")
+#            product2rename=$(find "${prodname}" -name 'MSC_*B_1G.tif')
+#            ;;
+#        "3")
+#            product2rename=$(find "${prodname}" -name 'MSC_*N_1G.tif')
+#            ;;
         "0")
-            product2rename=$(find "${prodname}" -name 'MSC_*R_1G.tif')
-            ;;
-        "1")
             product2rename=$(find "${prodname}" -name 'MSC_*G_1G.tif')
             ;;
-        "2")
+        "1")
             product2rename=$(find "${prodname}" -name 'MSC_*B_1G.tif')
             ;;
-        "3")
+        "2")
             product2rename=$(find "${prodname}" -name 'MSC_*N_1G.tif')
+            ;;
+        "3")
+            product2rename=$(find "${prodname}" -name 'MSC_*R_1G.tif')
             ;;
         *)
             return "${ERR_PREPROCESS}"
@@ -2135,9 +2147,10 @@ elif [ ${mission} = "Kompsat-2" ]; then
         fi      
     done
 elif [ ${mission} = "Kompsat-3" ]; then
-    find "${prodname}" -name 'K3_*_L1G_R*.tif' > $tifList
+#    find "${prodname}" -name 'K3_*_L1G_R*.tif' > $tifList
     find "${prodname}" -name 'K3_*_L1G_G*.tif' >> $tifList
     find "${prodname}" -name 'K3_*_L1G_B*.tif' >> $tifList
+    find "${prodname}" -name 'K3_*_L1G_R*.tif' >> $tifList
     find "${prodname}" -name 'K3_*_L1G_N*.tif' >> $tifList
 
 elif [ ${mission} = "VRSS1" ]; then
