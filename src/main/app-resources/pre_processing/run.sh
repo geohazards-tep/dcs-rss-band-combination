@@ -117,7 +117,7 @@ function check_product_type() {
 
       prodTypeName=$( echo ${productName:9:3} )
       ciop-log "INFO" "retrieved product is type: ${prodTypeName}"
-      if [ $prodTypeName != "EFR" ] && [ $prodTypeName != "ERR" ]; then
+      if [ $prodTypeName != "EFR" ] && [ $prodTypeName != "ERR" ] && [ $prodTypeName != "RBT" ] ; then
           return $ERR_WRONGPRODTYPE
       fi
 
@@ -458,6 +458,8 @@ case "$mission" in
 		echo 300
 	    elif [ "${prodType}" == "ERR" ]; then
 	    	echo 1200
+   	    elif [ "${prodType}" == "RBT" ]; then
+		echo 500	
 	    else 
 		return ${ERR_GETPIXELSPACING}
 	    fi
@@ -758,6 +760,7 @@ if [ "$inputNum" -lt 2 ] && [ "$inputNum" -gt 3 ]; then
 fi
 local prodname=$1
 local mission=$2
+local productName=$( basename "${prodname}" )
 local retrievedProduct=""
 [ "$inputNum" -eq 3 ] && retrievedProduct=$3
 local bandListCsv=""
@@ -785,8 +788,20 @@ case "$mission" in
 	    bandListCsv="B1,B2,B3,B4,B5,B6,B7,B8,B8A,B9,B10,B11,B12"
             ;;
 	"Sentinel-3")
-	    bandListCsv="Oa01_radiance,Oa02_radiance,Oa03_radiance,Oa04_radiance,Oa05_radiance,Oa06_radiance,Oa07_radiance,Oa08_radiance,Oa09_radiance,Oa10_radiance,Oa11_radiance,Oa12_radiance,Oa13_radiance,Oa14_radiance,Oa15_radiance,Oa16_radiance,Oa17_radiance,Oa18_radiance,Oa19_radiance,Oa20_radiance,Oa21_radiance"
-	    ;;
+ 	    prodTypeName=$( echo ${productName:9:3} )
+	    ciop-log "INFO" "Product type for band name= $prodTypeName"
+	    case "$prodTypeName" in
+		"EFR")
+			bandListCsv="Oa01_radiance,Oa02_radiance,Oa03_radiance,Oa04_radiance,Oa05_radiance,Oa06_radiance,Oa07_radiance,Oa08_radiance,Oa09_radiance,Oa10_radiance,Oa11_radiance,Oa12_radiance,Oa13_radiance,Oa14_radiance,Oa15_radiance,Oa16_radiance,Oa17_radiance,Oa18_radiance,Oa19_radiance,Oa20_radiance,Oa21_radiance"
+			;;
+		"ERR")
+			bandListCsv="Oa01_radiance,Oa02_radiance,Oa03_radiance,Oa04_radiance,Oa05_radiance,Oa06_radiance,Oa07_radiance,Oa08_radiance,Oa09_radiance,Oa10_radiance,Oa11_radiance,Oa12_radiance,Oa13_radiance,Oa14_radiance,Oa15_radiance,Oa16_radiance,Oa17_radiance,Oa18_radiance,Oa19_radiance,Oa20_radiance,Oa21_radiance"
+			;;
+		"RBT")
+			bandListCsv="S1_radiance_an, S2_radiance_an, S3_radiance_an, S4_radiance_an, S5_radiance_an, S6_radiance_an, S7_BT_in, S8_BT_in, S9_BT_in, F1_BT_in, F2_BT_in"
+			;;
+	     esac
+	     ;;
         "UK-DMC2")
 	    bandListCsv="NIR,Red,Green"
             ;;
@@ -1395,6 +1410,91 @@ EOF
     } || return ${SNAP_REQUEST_ERROR}
 }
 
+function reproject_sentinel_3() {
+
+#reproject sentinel 3 cloudcover and  rgb and convert to tif
+
+inputNum=$#
+[ "$inputNum" -ne 2 ] && return ${SNAP_REQUEST_ERROR}
+
+local input=$1
+local target=$2
+
+snap_request_filename="${TMPDIR}/$( uuidgen ).xml"
+	cat << EOF > ${snap_request_filename}
+<graph id="Graph">
+  <version>1.0</version>
+  <node id="Read">
+    <operator>Read</operator>
+    <sources/>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <file>${input}</file>
+    </parameters>
+  </node>
+  <node id="Reproject">
+    <operator>Reproject</operator>
+    <sources>
+      <sourceProduct refid="Read"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <wktFile/>
+      <crs>GEOGCS[&quot;WGS84(DD)&quot;, &#xd;
+  DATUM[&quot;WGS84&quot;, &#xd;
+    SPHEROID[&quot;WGS84&quot;, 6378137.0, 298.257223563]], &#xd;
+  PRIMEM[&quot;Greenwich&quot;, 0.0], &#xd;
+  UNIT[&quot;degree&quot;, 0.017453292519943295], &#xd;
+  AXIS[&quot;Geodetic longitude&quot;, EAST], &#xd;
+  AXIS[&quot;Geodetic latitude&quot;, NORTH]]</crs>
+      <resampling>Nearest</resampling>
+      <referencePixelX/>
+      <referencePixelY/>
+      <easting/>
+      <northing/>
+      <orientation/>
+      <pixelSizeX/>
+      <pixelSizeY/>
+      <width/>
+      <height/>
+      <tileSizeX/>
+      <tileSizeY/>
+      <orthorectify>false</orthorectify>
+      <elevationModelName/>
+      <noDataValue>NaN</noDataValue>
+      <includeTiePointGrids>true</includeTiePointGrids>
+      <addDeltaBands>false</addDeltaBands>
+    </parameters>
+  </node>
+  <node id="Write">
+    <operator>Write</operator>
+    <sources>
+      <sourceProduct refid="Reproject"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <file>${target}</file>
+      <formatName>GeoTIFF-BigTIFF</formatName>
+    </parameters>
+  </node>
+  <applicationData id="Presentation">
+    <Description/>
+    <node id="Read">
+            <displayPosition x="37.0" y="134.0"/>
+    </node>
+    <node id="Reproject">
+      <displayPosition x="192.0" y="130.0"/>
+    </node>
+    <node id="Write">
+            <displayPosition x="455.0" y="135.0"/>
+    </node>
+  </applicationData>
+</graph>
+EOF
+
+
+    [ $? -eq 0 ] && {
+        echo "${snap_request_filename}"
+        return 0
+    } || return ${SNAP_REQUEST_ERROR}
+}
 
 # Radarsat-2 pre processing function
 function pre_processing_rs2() {
@@ -1459,6 +1559,79 @@ else
     fi
 fi
 
+}
+
+function create_cloudcover_rbt_s3() {
+
+#Function to retrieve the cloudcover band for S3 RBT
+
+inputNum=$#
+[ "$inputNum" -ne 2 ] && return ${SNAP_REQUEST_ERROR}
+
+local input=$1
+local target=$2
+
+snap_request_filename="${TMPDIR}/$( uuidgen ).xml"
+
+cat << EOF > ${snap_request_filename}
+<graph id="Graph">
+  <version>1.0</version>
+  <node id="Read">
+    <operator>Read</operator>
+    <sources/>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <file>${input}</file>
+      <formatName>Sen3_SLSTRL1B_500m</formatName>	
+    </parameters>
+  </node>
+  <node id="BandMaths">
+    <operator>BandMaths</operator>
+    <sources>
+      <sourceProduct refid="Read"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <targetBands>
+        <targetBand>
+          <name>newBand</name>
+          <type>float32</type>
+          <expression>if cloud_an &gt; 1 then 255 else NaN</expression>
+          <description/>
+          <unit/>
+          <noDataValue>0.0</noDataValue>
+        </targetBand>
+      </targetBands>
+      <variables/>
+    </parameters>
+  </node>
+  <node id="Write">
+    <operator>Write</operator>
+    <sources>
+      <sourceProduct refid="BandMaths"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <file>${target}</file>
+      <formatName>BEAM-DIMAP</formatName>
+    </parameters>
+  </node>
+  <applicationData id="Presentation">
+    <Description/>
+    <node id="Read">
+            <displayPosition x="39.0" y="139.0"/>
+    </node>
+    <node id="BandMaths">
+      <displayPosition x="182.0" y="139.0"/>
+    </node>
+    <node id="Write">
+            <displayPosition x="455.0" y="135.0"/>
+    </node>
+  </applicationData>
+</graph>
+EOF
+
+    [ $? -eq 0 ] && {
+        echo "${snap_request_filename}"
+        return 0
+    } || return ${SNAP_REQUEST_ERROR}
 }
 
 
@@ -1750,7 +1923,9 @@ local pixelSpacing=$2
 local pixelSpacingMaster=$3
 local performCropping=$4
 local subsettingBoxWKT=$5
+local sensortype=""
 local prodname=""
+local Productbasename=$( basename "$retrievedProduct" )
 unzippedFolder=$(ls $retrievedProduct)
 # log the value, it helps debugging.
 # the log entry is available in the process stderr
@@ -1758,78 +1933,184 @@ ciop-log "DEBUG" "unzippedFolder: ${unzippedFolder}"
 # retrieved product pointing to the unzipped folder
 prodname=$retrievedProduct/$unzippedFolder
 
+ciop-log "INFO" "retrieved product is ${productName}"
+prodTypeName=$( echo ${Productbasename:9:3} )
+ciop-log "INFO" "retrieved product is type: ${prodTypeName}"
+ciop-log "INFO" "Product type = ${prodTypeName}"
+if [ ${prodTypeName} = "RBT" ]; then
+	sensortype="SLSTR_500m"
+	cloudband="cloud_an_visible"
+	retrieved_xml=$(find ${retrievedProduct}/ -name '*.xml' )
+        ciop-log "INFO" "The retrieved xml file is: ${retrieved_xml} and Productbasename is ${Productbasename}"
+        target=${TMPDIR}/${Productbasename}.tif
+        ciop-log "INFO" "The target dim file is: ${target}"
+        productName_cloudcover=${Productbasename}_cloudcover
+        cloudcoverProduct=${TMPDIR}/${productName_cloudcover}.dim
+	cloudcoverProduct_reproj=${TMPDIR}/${productName_cloudcover}_reproj.tif
+                #Final product name
+        CloudcoverFinalProduct=${OUTPUTDIR}/${productName_cloudcover}.tif
+        ciop-log "INFO" "Creating snap request file for cloud geotiff with ${retrieved_xml} and ${cloudcoverProduct}"
+                #creation of snap request file for cloudcover geotiff
+        SNAP_REQUEST=$( create_cloudcover_rbt_s3 "${retrieved_xml}" "${cloudcoverProduct}" )
+                #[$? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
+        [ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST}
+                # report activity in the log
+        ciop-log "INFO" "Generated request file: ${SNAP_REQUEST}"
+                  # report activity in the log
+        ciop-log "INFO" "Invoking SNAP-gpt on the generated request file for producing a cloudcover geotiff"
+                # invoke the ESA SNAP toolbox
+        gpt $SNAP_REQUEST -c "${CACHE_SIZE}" &> /dev/null
+                # check the exit code
+        [ $? -eq 0 ] || return $ERR_SNAP
+
+        ciop-log "INFO" "Creating snap request file for cloud geotiff with input ${cloudcoverProduct} and target:${cloudcoverProduct_reproj}"
+                #creation of snap request file for cloudcover geotiff
+        SNAP_REQUEST=$( reproject_sentinel_3 "${cloudcoverProduct}" "${cloudcoverProduct_reproj}" )
+                #[$? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
+        [ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST}
+               # report activity in the log
+        ciop-log "INFO" "Generated request file: ${SNAP_REQUEST}"
+                  # report activity in the log
+        ciop-log "INFO" "Invoking SNAP-gpt on the generated request file for producing a cloudcover geotiff"
+                # invoke the ESA SNAP toolbox
+        gpt $SNAP_REQUEST -c "${CACHE_SIZE}" &> /dev/null
+                # check the exit code
+        [ $? -eq 0 ] || return $ERR_SNAP
+
+
+	#REPROJECT AND THEN DO NEXT STEPS OF WARP AND TRANSLATE
+	ciop-log "INFO" "Provoking gdal_translate on ${cloudcoverProduct_reproj}"
+        gdal_translate -ot Byte -of GTiff -b 1 -a_nodata 0 -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=MINISBLACK" ${cloudcoverProduct_reproj}  temp-outputfile2.tif
+
+        gdalwarp -srcnodata 0 -dstalpha -co "ALPHA=YES" temp-outputfile2.tif ${CloudcoverFinalProduct}
+        gdaladdo -r average ${CloudcoverFinalProduct} 2 4 8 16
+        returnCode=$?
+        [ $returnCode -eq 0 ] || return ${ERR_CONVERT}
+	
+        prodBasename=$(basename ${prodname})
+
+	
+	# report activity in the log
+	ciop-log "INFO" "Preparing get_band_list for ${prodBasename}"
+	# source bands list for Sentinel 2
+	sourceBandsList=$(get_band_list "${prodBasename}" "Sentinel-3" )
+	# resample flag always true because S2 contains bands with differnt sampling steps
+	performResample="true"
+	# prepare the SNAP request
+        ciop-log "INFO" "Preparing SNAP request file for Sentinel 3 data pre processing"
+	local target_spacing=$( get_greater_pixel_spacing ${pixelSpacing} ${pixelSpacingMaster} )
+
+        prodBasename=$(basename ${prodname})
+        outProdBasename=${prodBasename}_pre_proc.dim
+        outProd=${OUTPUTDIR_PRE_PROC}/${outProdBasename}
+	
+	SNAP_REQUEST=$( create_snap_request_bandselect_s3 "${retrieved_xml}" "${outProd}" )
+	ciop-log "INFO" "Input in graph: s3 xml: ${retrieved_xml} performresample: ${performResample} target spacing: ${target_spacing} perform cropping: ${performCropping} subsetting box wkt: ${subsettingBoxWKT} sourcebandlist ${sourceBandsList} outprod ${outProd}"	
+#	SNAP_REQUEST=$( create_snap_request_rsmpl_rprj_sbs_s3 "${retrieved_xml}" "${performResample}" "${target_spacing}" "${performCropping}" "${subsettingBoxWKT}" "${sourceBandsList}" "${outProd}")
+#	[ $? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
+	[ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST}
+	# report activity in the log
+	ciop-log "INFO" "Generated request file: ${SNAP_REQUEST}"
+
+	# report activity in the log
+	ciop-log "INFO" "Invoking SNAP-gpt on the generated request file for Sentinel 3 data pre processing"
+
+	# invoke the ESA SNAP toolbox
+	gpt $SNAP_REQUEST -c "${CACHE_SIZE}" 2> log.txt 
+	returncode=$?
+	test_txt=$(cat log.txt | grep "No intersection")
+	rm log.txt
+	# catch proper error if any
+	if [ $returncode -eq 0 ] ; then
+	    # no error case
+	    return 0
+	else
+	    if [[ "${test_txt}" != "" ]]; then
+	        # error due to void intersection between user AOI and data
+	        return $ERR_AOI
+	    else
+	        # generic snap-gpt execution error
+	        return $ERR_SNAP
+	    fi
+	fi
+
+
+else
+	sensortype="OLCI"
+	cloudband="quality_flags_bright"
 #get full path of S3 product metadata xml file
 # check if it is like S3?_*.xml
-s3_xml=$(find ${prodname}/ -name '*.xml')
+	s3_xml=$(find ${prodname}/ -name '*.xml')
+
 
 # use the greter pixel spacing as target spacing (in order to downsample if needed, upsampling always avoided)
-local target_spacing=$( get_greater_pixel_spacing ${pixelSpacing} ${pixelSpacingMaster} )
+	local target_spacing=$( get_greater_pixel_spacing ${pixelSpacing} ${pixelSpacingMaster} )
 
-prodBasename=$(basename ${prodname})
-outProdBasename=${prodBasename}_pre_proc
-outProd=${OUTPUTDIR_PRE_PROC}/${outProdBasename}
+	prodBasename=$(basename ${prodname})
+	outProdBasename=${prodBasename}_pre_proc
+	outProd=${OUTPUTDIR_PRE_PROC}/${outProdBasename}
 
 #output of snap request file for cloudcover geotiff
-productName_cloudcover=${prodBasename}_cloudcover
-cloudcoverProduct=${TMPDIR}/${productName_cloudcover}.tif
+	productName_cloudcover=${prodBasename}_cloudcover
+	cloudcoverProduct=${TMPDIR}/${productName_cloudcover}.tif
 #Final product name
-CloudcoverFinalProduct=${OUTPUTDIR}/${productName_cloudcover}.tif
-ciop-log "INFO" "Creating snap request file for cloud geotiff with ${s3_xml} and ${cloudcoverProduct} to create ${CloudcoverFinalProduct}"
+	CloudcoverFinalProduct=${OUTPUTDIR}/${productName_cloudcover}.tif
+	ciop-log "INFO" "Creating snap request file for cloud geotiff with ${s3_xml} and ${cloudcoverProduct} to create ${CloudcoverFinalProduct}"
 #creation of snap request file for cloudcover geotiff
-SNAP_REQUEST_cloudcover=$( create_cloudcover_geotiff_S3 "${s3_xml}" "${cloudcoverProduct}" "${performCropping}" "${subsettingBoxWKT}" )
-#[$? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
-[ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST_cloudcover}
+	SNAP_REQUEST_cloudcover=$( create_cloudcover_geotiff_S3 "${s3_xml}" "${cloudcoverProduct}" "${performCropping}" "${subsettingBoxWKT}" "${cloudband}" )
+	[$? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
+	[ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST_cloudcover}
 # report activity in the log
-ciop-log "INFO" "Generated request file: ${SNAP_REQUEST_cloudcover}"
+	ciop-log "INFO" "Generated request file: ${SNAP_REQUEST_cloudcover}"
 # report activity in the log
-ciop-log "INFO" "Invoking SNAP-gpt on the generated request file for producing a cloudcover geotiff"
+	ciop-log "INFO" "Invoking SNAP-gpt on the generated request file for producing a cloudcover geotiff"
 # invoke the ESA SNAP toolbox
-gpt $SNAP_REQUEST_cloudcover -c "${CACHE_SIZE}" &> /dev/null
-# check the exit code
-[ $? -eq 0 ] || return $ERR_SNAP
-gdal_translate -ot Byte -of GTiff -a_nodata 0 -co "ALPHA=YES"  -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=MINISBLACK" ${cloudcoverProduct} temp-outputfile2.tif
-gdalwarp -srcnodata 0 -dstalpha -co "ALPHA=YES" temp-outputfile2.tif ${CloudcoverFinalProduct}
+	gpt $SNAP_REQUEST_cloudcover -c "${CACHE_SIZE}" &> /dev/null
+#check the exit code
+	[ $? -eq 0 ] || return $ERR_SNAP
+	gdal_translate -ot Byte -of GTiff -a_nodata 0 -co "ALPHA=YES"  -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=MINISBLACK" ${cloudcoverProduct} temp-outputfile2.tif
+	gdalwarp -srcnodata 0 -dstalpha -co "ALPHA=YES" temp-outputfile2.tif ${CloudcoverFinalProduct}
 
-gdaladdo -r average ${CloudcoverFinalProduct} 2 4 8 16
+	gdaladdo -r average ${CloudcoverFinalProduct} 2 4 8 16
 
-rm ${pconvertOutRgbCompositeTIF} ${target} temp-outputfile.tif temp-outputfile2.tif
+	rm ${pconvertOutRgbCompositeTIF} ${target} temp-outputfile.tif temp-outputfile2.tif
 
 
 # report activity in the log
-ciop-log "INFO" "Preparing SNAP request file for Sentinel 3 data pre processing"
+	ciop-log "INFO" "Preparing SNAP request file for Sentinel 3 data pre processing"
 # source bands list for Sentinel 2
-sourceBandsList=$(get_band_list "${prodBasename}" "Sentinel-3" )
+	sourceBandsList=$(get_band_list "${prodBasename}" "Sentinel-3" )
 # resample flag always true because S2 contains bands with differnt sampling steps
-performResample="true"
+	performResample="true"
 # prepare the SNAP request
-SNAP_REQUEST=$( create_snap_request_rsmpl_rprj_sbs_s3 "${s3_xml}" "${performResample}" "${target_spacing}" "${performCropping}" "${subsettingBoxWKT}" "${sourceBandsList}" "${outProd}")
-[ $? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
-[ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST}
+	SNAP_REQUEST=$( create_snap_request_rsmpl_rprj_sbs_s3 "${s3_xml}" "${performResample}" "${target_spacing}" "${performCropping}" "${subsettingBoxWKT}" "${sourceBandsList}" "${outProd}" "${sensortype}" )
+#	[ $? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
+	[ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST}
 # report activity in the log
-ciop-log "INFO" "Generated request file: ${SNAP_REQUEST}"
+	ciop-log "INFO" "Generated request file: ${SNAP_REQUEST}"
 
 # report activity in the log
-ciop-log "INFO" "Invoking SNAP-gpt on the generated request file for Sentinel 3 data pre processing"
+	ciop-log "INFO" "Invoking SNAP-gpt on the generated request file for Sentinel 3 data pre processing"
 
 # invoke the ESA SNAP toolbox
-gpt $SNAP_REQUEST -c "${CACHE_SIZE}" 2> log.txt
-returncode=$?
-test_txt=$(cat log.txt | grep "No intersection")
-rm log.txt
+	gpt $SNAP_REQUEST -c "${CACHE_SIZE}" 2> log.txt
+	returncode=$?
+	test_txt=$(cat log.txt | grep "No intersection")
+	rm log.txt
 # catch proper error if any
-if [ $returncode -eq 0 ] ; then
+	if [ $returncode -eq 0 ] ; then
     # no error case
-    return 0
-else
-    if [[ "${test_txt}" != "" ]]; then
+	    return 0
+	else
+	    if [[ "${test_txt}" != "" ]]; then
         # error due to void intersection between user AOI and data
-        return $ERR_AOI
-    else
+	        return $ERR_AOI
+	else
         # generic snap-gpt execution error
-        return $ERR_SNAP
-    fi
+        	return $ERR_SNAP
+	    fi
+	fi
 fi
-
 }
 
 # UKDMC2 pre processing function
@@ -3107,6 +3388,7 @@ local retrieved_xml=$1
 local outProd=$2
 local performcropping=$3
 local subsettingBoxWKT=$4
+local cloudband=$5
 
 local commentSbsBegin=""
 local commentSbsEnd=""
@@ -3145,27 +3427,7 @@ snap_request_filename="${TMPDIR}/$( uuidgen ).xml"
     </sources>
     <parameters class="com.bc.ceres.binding.dom.XppDomElement">
       <wktFile/>
-      <crs>PROJCS[&quot;WGS 84 / Pseudo-Mercator&quot;, &#xd;
-  GEOGCS[&quot;WGS 84&quot;, &#xd;
-    DATUM[&quot;World Geodetic System 1984&quot;, &#xd;
-      SPHEROID[&quot;WGS 84&quot;, 6378137.0, 298.257223563, AUTHORITY[&quot;EPSG&quot;,&quot;7030&quot;]], &#xd;
-      AUTHORITY[&quot;EPSG&quot;,&quot;6326&quot;]], &#xd;
-    PRIMEM[&quot;Greenwich&quot;, 0.0, AUTHORITY[&quot;EPSG&quot;,&quot;8901&quot;]], &#xd;
-    UNIT[&quot;degree&quot;, 0.017453292519943295], &#xd;
-    AXIS[&quot;Geodetic longitude&quot;, EAST], &#xd;
-    AXIS[&quot;Geodetic latitude&quot;, NORTH], &#xd;
-    AUTHORITY[&quot;EPSG&quot;,&quot;4326&quot;]], &#xd;
-  PROJECTION[&quot;Popular Visualisation Pseudo Mercator&quot;, AUTHORITY[&quot;EPSG&quot;,&quot;1024&quot;]], &#xd;
-  PARAMETER[&quot;semi_minor&quot;, 6378137.0], &#xd;
-  PARAMETER[&quot;latitude_of_origin&quot;, 0.0], &#xd;
-  PARAMETER[&quot;central_meridian&quot;, 0.0], &#xd;
-  PARAMETER[&quot;scale_factor&quot;, 1.0], &#xd;
-  PARAMETER[&quot;false_easting&quot;, 0.0], &#xd;
-  PARAMETER[&quot;false_northing&quot;, 0.0], &#xd;
-  UNIT[&quot;m&quot;, 1.0], &#xd;
-  AXIS[&quot;Easting&quot;, EAST], &#xd;
-  AXIS[&quot;Northing&quot;, NORTH], &#xd;
-  AUTHORITY[&quot;EPSG&quot;,&quot;3857&quot;]]</crs>
+      <crs>EPSG:4326</crs>
       <resampling>Nearest</resampling>
       <referencePixelX/>
       <referencePixelY/>
@@ -3195,7 +3457,7 @@ snap_request_filename="${TMPDIR}/$( uuidgen ).xml"
         <targetBand>
           <name>cloudmask</name>
           <type>float32</type>
-          <expression>quality_flags_bright</expression>
+          <expression>${cloudband}</expression>
           <description/>
           <unit/>
           <noDataValue>0.0</noDataValue>
@@ -3585,6 +3847,69 @@ EOF
     } || return ${SNAP_REQUEST_ERROR}
 }
 
+function create_snap_request_bandselect_s3() {
+inputNum=$#
+[ "$inputNum" -ne 2 ] && return ${ERR_PREPROCESS}
+
+local prodname=$1
+local outprod=$2
+#sets the output filename
+snap_request_filename="${TMPDIR}/$( uuidgen ).xml"
+
+   cat << EOF > ${snap_request_filename}
+<graph id="Graph">
+  <version>1.0</version>
+  <node id="Read">
+    <operator>Read</operator>
+    <sources/>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <file>${prodname}</file>
+    </parameters>
+  </node>
+  <node id="BandSelect">
+    <operator>BandSelect</operator>
+    <sources>
+      <sourceProduct refid="Read"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <selectedPolarisations/>
+      <sourceBands>S1_radiance_an,S2_radiance_an,S3_radiance_an,S4_radiance_an,S5_radiance_an,S6_radiance_an,S7_BT_in,S8_BT_in,S9_BT_in,F1_BT_in,F2_BT_in</sourceBands>
+      <bandNamePattern/>
+    </parameters>
+  </node>
+  <node id="Write">
+    <operator>Write</operator>
+    <sources>
+      <sourceProduct refid="BandSelect"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <file>${outprod}</file>
+      <formatName>BEAM-DIMAP</formatName>
+    </parameters>
+  </node>
+  <applicationData id="Presentation">
+    <Description/>
+    <node id="Read">
+            <displayPosition x="37.0" y="134.0"/>
+    </node>
+    <node id="BandSelect">
+      <displayPosition x="204.0" y="143.0"/>
+    </node>
+    <node id="Write">
+            <displayPosition x="455.0" y="135.0"/>
+    </node>
+  </applicationData>
+</graph>
+EOF
+
+    [ $? -eq 0 ] && {
+        echo "${snap_request_filename}"
+        return 0
+    } || return ${SNAP_REQUEST_ERROR}
+}
+
+
+
 function create_snap_request_rsmpl_rprj_sbs_s3() {
 
 # function call create_snap_request_rsmpl_rprj_sbs "${prodname}" "${performResample}" "${target_spacing}" "${performCropping}" "${subsettingBoxWKT}" "${sourceBandsList}" "${outProd}"
@@ -3602,6 +3927,8 @@ local performCropping=$4
 local subsettingBoxWKT=$5
 local sourceBandsList=$6
 local outprod=$7
+local sensortype="SLSTR_500m"
+
 # perform ceiling on target_spacing (resampling needs integer spacing)
 local pixelSpacing_floor=$(echo "scale=0; $target_spacing/1" | bc )
 (( $(bc <<< "$pixelSpacing_floor == $target_spacing") )) || let "target_spacing=pixelSpacing_floor+1" 
@@ -3648,36 +3975,46 @@ snap_request_filename="${TMPDIR}/$( uuidgen ).xml"
     <sources/>
     <parameters class="com.bc.ceres.binding.dom.XppDomElement">
       <file>${prodname}</file>
+      <formatName>Sen3</formatName>	
     </parameters>
   </node>
-  <node id="Reproject">
-    <operator>Reproject</operator>
+  <node id="Rad2Refl">
+    <operator>Rad2Refl</operator>
     <sources>
       <sourceProduct refid="Read"/>
     </sources>
     <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <sensor>${sensortype}</sensor>
+      <conversionMode>RAD_TO_REFL</conversionMode>
+      <copyTiePointGrids>false</copyTiePointGrids>
+      <copyFlagBandsAndMasks>false</copyFlagBandsAndMasks>
+      <copyNonSpectralBands>false</copyNonSpectralBands>
+    </parameters>
+  </node>
+${commentRsmpBegin}  <node id="Resample">
+    <operator>Resample</operator>
+    <sources>
+      <sourceProduct refid="Rad2Refl"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <referenceBand/>
+      <targetWidth/>
+      <targetHeight/>
+      <targetResolution>${target_spacing}</targetResolution>
+      <upsampling>Nearest</upsampling>
+      <downsampling>First</downsampling>
+      <flagDownsampling>First</flagDownsampling>
+      <resampleOnPyramidLevels>true</resampleOnPyramidLevels>
+    </parameters>
+  </node> ${commentRsmpEnd}
+  <node id="Reproject">
+    <operator>Reproject</operator>
+    <sources>
+      <sourceProduct refid="Resample"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
       <wktFile/>
-      <crs>PROJCS[&quot;WGS 84 / Pseudo-Mercator&quot;, &#xd;
-  GEOGCS[&quot;WGS 84&quot;, &#xd;
-    DATUM[&quot;World Geodetic System 1984&quot;, &#xd;
-      SPHEROID[&quot;WGS 84&quot;, 6378137.0, 298.257223563, AUTHORITY[&quot;EPSG&quot;,&quot;7030&quot;]], &#xd;
-      AUTHORITY[&quot;EPSG&quot;,&quot;6326&quot;]], &#xd;
-    PRIMEM[&quot;Greenwich&quot;, 0.0, AUTHORITY[&quot;EPSG&quot;,&quot;8901&quot;]], &#xd;
-    UNIT[&quot;degree&quot;, 0.017453292519943295], &#xd;
-    AXIS[&quot;Geodetic longitude&quot;, EAST], &#xd;
-    AXIS[&quot;Geodetic latitude&quot;, NORTH], &#xd;
-    AUTHORITY[&quot;EPSG&quot;,&quot;4326&quot;]], &#xd;
-  PROJECTION[&quot;Popular Visualisation Pseudo Mercator&quot;, AUTHORITY[&quot;EPSG&quot;,&quot;1024&quot;]], &#xd;
-  PARAMETER[&quot;semi_minor&quot;, 6378137.0], &#xd;
-  PARAMETER[&quot;latitude_of_origin&quot;, 0.0], &#xd;
-  PARAMETER[&quot;central_meridian&quot;, 0.0], &#xd;
-  PARAMETER[&quot;scale_factor&quot;, 1.0], &#xd;
-  PARAMETER[&quot;false_easting&quot;, 0.0], &#xd;
-  PARAMETER[&quot;false_northing&quot;, 0.0], &#xd;
-  UNIT[&quot;m&quot;, 1.0], &#xd;
-  AXIS[&quot;Easting&quot;, EAST], &#xd;
-  AXIS[&quot;Northing&quot;, NORTH], &#xd;
-  AUTHORITY[&quot;EPSG&quot;,&quot;3857&quot;]]</crs>
+      <crs>EPSG:4326</crs>
       <resampling>Nearest</resampling>
       <referencePixelX/>
       <referencePixelY/>
@@ -3697,22 +4034,6 @@ snap_request_filename="${TMPDIR}/$( uuidgen ).xml"
       <addDeltaBands>false</addDeltaBands>
     </parameters>
   </node>
-${commentRsmpBegin}  <node id="Resample">
-    <operator>Resample</operator>
-    <sources>
-      <sourceProduct refid="Reproject"/>
-    </sources>
-    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
-      <referenceBand/>
-      <targetWidth/>
-      <targetHeight/>
-      <targetResolution>${target_spacing}</targetResolution>
-      <upsampling>Nearest</upsampling>
-      <downsampling>First</downsampling>
-      <flagDownsampling>First</flagDownsampling>
-      <resampleOnPyramidLevels>true</resampleOnPyramidLevels>
-    </parameters>
-  </node> ${commentRsmpEnd}
 ${commentSbsBegin}   <node id="Subset">
     <operator>Subset</operator>
     <sources>
@@ -3734,7 +4055,7 @@ ${commentSbsBegin}     </sources>
     <operator>BandSelect</operator>
     <sources>
 	  ${commentSbsBegin} <sourceProduct refid="Subset"/> ${commentSbsEnd}
-   ${commentProjSrcBegin}    <sourceProduct refid="Resample"/> ${commentProjSrcEnd}
+   ${commentProjSrcBegin}    <sourceProduct refid="Reproject"/> ${commentProjSrcEnd}
     </sources>
     <parameters class="com.bc.ceres.binding.dom.XppDomElement">
       <selectedPolarisations/>
@@ -3782,6 +4103,52 @@ EOF
     } || return ${SNAP_REQUEST_ERROR}
 }
 
+function band_selection_s3(){
+
+#function call band_selection "${out_pre_procDIM}" "${retrievedProduct}" "${prodnameArray[$index]}" "${missionArray[$index]}" "${bandIdArr[$index]}" "${outputProd}" "${pixelSpacingMeters}" "${isMaster}"
+inputNum=$#
+[ "$inputNum" -ne 8 ] && return ${ERR_BAND_SELECT}
+local inputDIM=$1
+local retrievedProduct=$2
+local prodname=$3
+local mission=$4
+local bandId=$5
+local outputProd=$6
+local pixelSpacingMeters=$7
+local isMaster=$8
+
+#get band list
+# report activity in the log
+ciop-log "DEBUG" "Calling get_band_list "${prodname}" "${mission}" "${retrievedProduct}" "
+bandList=$( get_band_list "${prodname}" "${mission}" "${retrievedProduct}")
+returnCode=$?
+[ $returnCode -eq 0 ] || return $returnCode
+ciop-log "DEBUG" "bandList $bandList"
+# get band identifier
+# report activity in the log
+ciop-log "INFO" "Calling "${bandId}" "${bandList}" "
+bandIdentifier=$( get_band_id "${bandId}" "${bandList}")
+returnCode=$?
+[ $returnCode -eq 0 ] || return $returnCode
+ciop-log "DEBUG" "bandIdentifier "${bandIdentifier}" "
+outBandName=${prodname}_${bandIdentifier}
+# report activity in the log
+ciop-log "INFO" "Preparing SNAP request file for band extraction from pre-processed product"
+ciop-log "INFO" "running the snap_request_band_math on inputDIM:"${inputDIM}" bandIdentifier: "${bandIdentifier}"outBandName: "${outBandName}"outputProd: "${outputProd}""
+# prepare the SNAP request
+SNAP_REQUEST=$( create_snap_request_band_math_s3 "${inputDIM}" "${bandIdentifier}" "${outBandName}" "${outputProd}" )
+[ $? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
+[ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST}
+# report activity in the log
+ciop-log "INFO" "Generated request file: ${SNAP_REQUEST}"
+# report activity in the log
+ciop-log "INFO" "Invoking SNAP-gpt on the generated request file for band extraction from pre-processed product"
+# invoke the ESA SNAP toolbox
+gpt $SNAP_REQUEST -c "${CACHE_SIZE}" &> /dev/null 
+# check the exit code
+[ $? -eq 0 ] || return $ERR_SNAP
+}
+
 # function that extracts the required band from input pre-processed product  
 function band_selection(){
 #function call band_selection "${out_pre_procDIM}" "${retrievedProduct}" "${prodnameArray[$index]}" "${missionArray[$index]}" "${bandIdArr[$index]}" "${outputProd}" "${pixelSpacingMeters}" "${isMaster}"
@@ -3814,9 +4181,18 @@ outBandName=${prodname}_${bandIdentifier}
 # report activity in the log
 ciop-log "INFO" "Preparing SNAP request file for band extraction from pre-processed product"
 # prepare the SNAP request
-SNAP_REQUEST=$( create_snap_request_band_math "${inputDIM}" "${bandIdentifier}" "${outBandName}" "${outputProd}")
-[ $? -eq 0 ] || return ${SNAP_REQUEST_ERROR}
-[ $DEBUG -eq 1 ] && cat ${SNAP_REQUEST}
+prodTypeName=${prodname:9:3}
+
+if [[ "${prodTypeName}" = "RBT" ]]; then
+                SNAP_REQUEST=$( create_snap_request_band_math_s3 "${inputDIM}" "${bandIdentifier}" "${outBandName}" "${outputProd}")
+
+		ciop-log "INFO" "the s3 band selection was chosen"
+else
+                SNAP_REQUEST=$( create_snap_request_band_math "${inputDIM}" "${bandIdentifier}" "${outBandName}" "${outputProd}")
+
+                ciop-log "INFO" "the normal band selection was chosen"
+fi
+
 # report activity in the log
 ciop-log "INFO" "Generated request file: ${SNAP_REQUEST}"
 # report activity in the log
@@ -3920,6 +4296,145 @@ snap_request_filename="${TMPDIR}/$( uuidgen ).xml"
     </node>
     <node id="Read">
             <displayPosition x="37.0" y="134.0"/>
+    </node>
+  </applicationData>
+</graph>
+EOF
+
+[ $? -eq 0 ] && {
+    echo "${snap_request_filename}"
+    return 0
+} || return ${SNAP_REQUEST_ERROR}
+
+}
+
+function create_snap_request_band_math_s3(){
+#function call create_snap_request_band_math "${inputDIM}" "${bandIdentifier}" "${outBandName}" "${outputProd}"
+
+# get number of inputs
+inputNum=$#
+# check on number of inputs
+if [ "$inputNum" -ne "4" ] ; then
+    return ${SNAP_REQUEST_ERROR}
+fi
+
+local inputDIM=$1
+local bandIdentifier=$2
+local outBandName=$3
+local outputProd=$4
+# put '' in band name if dash is present
+dash_test=$( echo ${bandIdentifier} | grep "-" )
+if [[ "${dash_test}" != "" ]] ; then
+    bandIdentifier=\'${bandIdentifier}\'
+fi
+
+#sets the output filename
+snap_request_filename="${TMPDIR}/$( uuidgen ).xml"
+
+   cat << EOF > ${snap_request_filename}
+<graph id="Graph">
+  <version>1.0</version>
+  <node id="Read">
+    <operator>Read</operator>
+    <sources/>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <file>${inputDIM}</file>
+    </parameters>
+  </node>
+  <node id="Reproject">
+    <operator>Reproject</operator>
+    <sources>
+      <sourceProduct refid="BandMaths"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <wktFile/>
+      <crs>GEOGCS[&quot;WGS84(DD)&quot;, &#xd;
+  DATUM[&quot;WGS84&quot;, &#xd;
+    SPHEROID[&quot;WGS84&quot;, 6378137.0, 298.257223563]], &#xd;
+  PRIMEM[&quot;Greenwich&quot;, 0.0], &#xd;
+  UNIT[&quot;degree&quot;, 0.017453292519943295], &#xd;
+  AXIS[&quot;Geodetic longitude&quot;, EAST], &#xd;
+  AXIS[&quot;Geodetic latitude&quot;, NORTH]]</crs>
+      <resampling>Nearest</resampling>
+      <referencePixelX/>
+      <referencePixelY/>
+      <easting/>
+      <northing/>
+      <orientation/>
+      <pixelSizeX/>
+      <pixelSizeY/>
+      <width/>
+      <height/>
+      <tileSizeX/>
+      <tileSizeY/>
+      <orthorectify>false</orthorectify>
+      <elevationModelName/>
+      <noDataValue>NaN</noDataValue>
+      <includeTiePointGrids>true</includeTiePointGrids>
+      <addDeltaBands>false</addDeltaBands>
+    </parameters>
+  </node>
+  <node id="Resample">
+    <operator>Resample</operator>
+    <sources>
+      <sourceProduct refid="Reproject"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <referenceBand/>
+      <targetWidth>500</targetWidth>
+      <targetHeight>500</targetHeight>
+      <targetResolution/>
+      <upsampling>Nearest</upsampling>
+      <downsampling>First</downsampling>
+      <flagDownsampling>First</flagDownsampling>
+      <resampleOnPyramidLevels>true</resampleOnPyramidLevels>
+    </parameters>
+  </node>
+  <node id="BandMaths">
+    <operator>BandMaths</operator>
+    <sources>
+      <sourceProduct refid="Read"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <targetBands>
+        <targetBand>
+          <name>${outBandName}</name>
+          <type>float32</type>
+          <expression>${bandIdentifier}</expression>
+	  <description/>
+          <unit/>
+          <noDataValue>0.0</noDataValue>
+        </targetBand>
+      </targetBands>
+      <variables/>
+    </parameters>
+  </node>
+  <node id="Write">
+    <operator>Write</operator>
+    <sources>
+      <sourceProduct refid="Resample"/>
+    </sources>
+    <parameters class="com.bc.ceres.binding.dom.XppDomElement">
+      <file>${outputProd}.dim</file>
+      <formatName>BEAM-DIMAP</formatName>
+    </parameters>
+  </node>
+  <applicationData id="Presentation">
+    <Description/>
+    <node id="Read">
+            <displayPosition x="37.0" y="134.0"/>
+    </node>
+    <node id="Reproject">
+      <displayPosition x="241.0" y="140.0"/>
+    </node>
+    <node id="Resample">
+      <displayPosition x="344.0" y="144.0"/>
+    </node>
+    <node id="BandMaths">
+      <displayPosition x="136.0" y="113.0"/>
+    </node>
+    <node id="Write">
+            <displayPosition x="455.0" y="135.0"/>
     </node>
   </applicationData>
 </graph>
@@ -4239,9 +4754,16 @@ function main() {
         ciop-log "INFO" "Running band selection for ${retrievedProductArray[$index]}"
         # report activity in the log
         ciop-log "DEBUG" "Function call band_selection "${out_pre_procDIM}" "${retrievedProductArray[$index]}" "${prodNameNoExt}" "${missionArray[$index]}" "${bandIdArr[$index]}" "${outputProd}" "${pixelSpacingMaster}" "${currentIsMaster}" "
- 	band_selection "${out_pre_procDIM}" "${retrievedProductArray[$index]}" "${prodNameNoExt}" "${missionArray[$index]}" "${bandIdArr[$index]}" "${outputProd}" "${pixelSpacingMaster}" "${isMasterArray[$index]}" 	
-        returnCode=$?
-	[ $returnCode -eq 0 ] || return $returnCode
+        unzippedFolder=$(ls ${retrievedProductArray[$index]})
+
+	prodname=${retrievedProductArray[$index]}/${unzippedFolder}
+        prodBasename=$( basename ${prodname} )
+	prodTypeName=${prodBasename:12:3}
+
+	ciop-log "INFO" "prodTypeName = "${prodTypeName}", prodBasename="${prodBasename}",  prodname="${prodname}", outpudprod="${outputProd}" " 
+     	band_selection "${out_pre_procDIM}" "${retrievedProductArray[$index]}" "${prodNameNoExt}" "${missionArray[$index]}" "${bandIdArr[$index]}" "${outputProd}" "${pixelSpacingMaster}" "${isMasterArray[$index]}" 	
+        #returnCode=$?
+	#[ $returnCode -eq 0 ] || return $returnCode
 	# save pre-proc out if it should be re-used by another color channel
 	# case RED must be saved
 	if [ $index -eq 0 ] && ( [ ${red_product} = ${green_product} ] || [ ${red_product} = ${blue_product} ]); then
@@ -4264,7 +4786,7 @@ function main() {
 	# the log entry is available in the process stderr
 	ciop-log "DEBUG" "unzippedFolder: ${unzippedFolder}"
 	# retrieved product pointing to the unzipped folder
-	prodname=$${retrievedProductArray[$index]}/$unzippedFolder
+	prodname=${retrievedProductArray[$index]}/$unzippedFolder
 
 	#get full path of S3 product metadata xml file
 	# check if it is like S3?_*.xml
@@ -4278,13 +4800,13 @@ function main() {
 	#Final product name	
 	CloudcoverFinalProduct=${OUTPUTDIR}/${productName_cloudcover}.tif
 
-	
+	ciop-log "INFO" "outputProdBasename="${outputProdBasename}.dim" and outputdir="${OUTPUTDIR}""
 	ciop-log "INFO" "CloudcoverProdBasename is "${CloudcoverFinalProduct}""
         cd ${OUTPUTDIR} 
-	tar -cf ${outputProdBasename}.tar ${outputProdBasename}.* ${productName_cloudcover}.tif
+	tar -cf ${outputProdBasename}.tar ${outputProdBasename}.* *.tif
         cd -
 	# report activity in the log
-        ciop-log "INFO" "Publishing results for ${prodnameArray[$index]}"
+        ciop-log "INFO" "Publishing results for ${prodnameArray[$index]} of "${outputProd}""
         ciop-publish ${outputProd}.tar
         #cleanup
         rm -rf ${OUTPUTDIR}/*.*
@@ -4307,6 +4829,7 @@ export OUTPUTDIR_PRE_PROC_RED=${TMPDIR}/outputPreProcRed
 mkdir -p ${TMPDIR}/outputPreProcGreen
 export OUTPUTDIR_PRE_PROC_GREEN=${TMPDIR}/outputPreProcGreen
 # debug flag setting
+
 export DEBUG=0
 
 # loop on input file to create a product array that will be processed by the main process
