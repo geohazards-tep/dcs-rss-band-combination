@@ -494,41 +494,60 @@ function main()
     for index in `seq 0 $inputfilesNum`;
     do
         mission="${mission_list[$index]}"
+	bandnumber="${bandShortIndex_list[$index]}"
         # tailored enhancement for some SAR missions
-        if [ ${mission} = "Sentinel-1"  ] || [ ${mission} = "Radarsat-2" ]; then
-            #linear strecth between -15 dB and +5 dB
-            python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" -15 5 "${tmpProd_list[$index]}" 
+	if [ ${mission} = "Radarsat-2" ]; then
+               #linear strecth between -15 dB and +5 dB
+               python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" -15 5 "${tmpProd_list[$index]}"
+        elif [ ${mission} = "Sentinel-1" ]; then
+               #Retrieve polarization type
+               polType=$( get_polarization_s1 "${prodName}" )
+               if [ ${polType} = "DH" ] || [ ${polType} = "DV" ] && [ ${bandnumber} = "2" ]; then
+                       python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" -25 5 "${tmpProd_list[$index]}"
+                       ciop-log "DEBUG" "Chosen for -25 5 scaling because: Pol: ${polType},Band: ${bandnumber} and Mission: ${mission}"
+               else
+                       python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" -15 5 "${tmpProd_list[$index]}"
+                       ciop-log "DEBUG" "Chosen for -15 5 scaling because: Pol: ${polType},Band: ${bandnumber} and Mission: ${mission}"
+               fi
+           # generic enhancement for all the other missions
+ 
         # generic enhancement for all the other missions
         else
             # histogram skip (percentiles from 2 to 96)
             python $_CIOP_APPLICATION_PATH/rgb_combination/hist_skip_no_zero.py "${outProdTIF}" "${stackOrderRGB[$index]}" 2 96 "${tmpProd_list[$index]}"
-            zMin=$(gdalinfo -mm "${outProdTIF}" | grep Min | sed -ne $((${index}+1))p | tr -d 's/*Computed Min\/Max=//p'| cut -d "," -f 1)
-            zMax=$(gdalinfo -mm "${outProdTIF}" | grep Min | sed -ne $((${index}+1))p | tr -d 's/*Computed Min\/Max=//p'| cut -d "," -f 2)
-            python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" $zMin $zMax "${tmpProd_list_pI[$index]}"
+       #     zMin=$(gdalinfo -mm "${outProdTIF}" | grep Min | sed -ne $((${index}+1))p | tr -d 's/*Computed Min\/Max=//p'| cut -d "," -f 1)
+       #     zMax=$(gdalinfo -mm "${outProdTIF}" | grep Min | sed -ne $((${index}+1))p | tr -d 's/*Computed Min\/Max=//p'| cut -d "," -f 2)
+       #     python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" $zMin $zMax "${tmpProd_list_pI[$index]}"
             echo $index $zMin $zMax > "${OUTPUTDIR}"/toto
             ciop-publish -m "${OUTPUTDIR}"/*
             if [ ${mission} = "Sentinel-2"  ]; then
                 python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" 0 0.3 "${tmpProd_list_pII[$index]}"
+		zMin=$(gdalinfo -mm "${outProdTIF}" | grep Min | sed -ne $((${index}+1))p | tr -d 's/*Computed Min\/Max=//p'| cut -d "," -f 1)
+	        zMax=$(gdalinfo -mm "${outProdTIF}" | grep Min | sed -ne $((${index}+1))p | tr -d 's/*Computed Min\/Max=//p'| cut -d "," -f 2)
+	        python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" $zMin $zMax "${tmpProd_list_pI[$index]}"
+	        echo $index $zMin $zMax > "${OUTPUTDIR}"/toto
             fi    
         fi
         #re-projection
         gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" "${tmpProd_list[$index]}" "${outRGB_list[$index]}".tif
-        gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" "${tmpProd_list_pI[$index]}" "${outRGB_list[$index]}"_pI.tif  
+       # gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" "${tmpProd_list_pI[$index]}" "${outRGB_list[$index]}"_pI.tif  
         returnCode=$?
         [ $returnCode -eq 0 ] || return ${ERR_CONVERT}
         if [ ${mission} = "Sentinel-2"  ]; then
-            gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" "${tmpProd_list_pI[$index]}" "${outRGB_list[$index]}"_pII.tif  
+		gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" "${tmpProd_list_pI[$index]}" "${outRGB_list[$index]}"_pI.tif
+	 	gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" "${tmpProd_list_pI[$index]}" "${outRGB_list[$index]}"_pII.tif  
         fi
 
         #Add overviews
         gdaladdo -r average "${outRGB_list[$index]}".tif 2 4 8 16
         returnCode=$?
         [ $returnCode -eq 0 ] || return ${ERR_CONVERT}    
-        gdaladdo -r average "${outRGB_list[$index]}"_pI.tif 2 4 8 16
+#        gdaladdo -r average "${outRGB_list[$index]}"_pI.tif 2 4 8 16
         returnCode=$?
         [ $returnCode -eq 0 ] || return ${ERR_CONVERT}
         if [ ${mission} = "Sentinel-2"  ]; then
-            gdaladdo -r average "${outRGB_list[$index]}"_pII.tif 2 4 8 16
+        	gdaladdo -r average "${outRGB_list[$index]}"_pII.tif 2 4 8 16
+		gdaladdo -r average "${outRGB_list[$index]}"_pI.tif 2 4 8 16
         fi
 
         # Create PNG output
@@ -543,9 +562,10 @@ function main()
     done
     # merge radiometric enhanced bands
     gdal_merge.py -separate -n 0 -a_nodata 0 -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" "temp-outputfile_band_r.tif" "temp-outputfile_band_g.tif" "temp-outputfile_band_b.tif" -o temp-outputfile.tif
-    gdal_merge.py -separate -n 0 -a_nodata 0 -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" "temp-outputfile_band_r_pI.tif" "temp-outputfile_band_g_pI.tif" "temp-outputfile_band_b_pI.tif" -o temp-outputfile_pI.tif
+#    gdal_merge.py -separate -n 0 -a_nodata 0 -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" "temp-outputfile_band_r_pI.tif" "temp-outputfile_band_g_pI.tif" "temp-outputfile_band_b_pI.tif" -o temp-outputfile_pI.tif
     if [ ${mission} = "Sentinel-2"  ]; then
         gdal_merge.py -separate -n 0 -a_nodata 0 -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" "temp-outputfile_band_r_pII.tif" "temp-outputfile_band_g_pII.tif" "temp-outputfile_band_b_pII.tif" -o temp-outputfile_pII.tif
+	gdal_merge.py -separate -n 0 -a_nodata 0 -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" "temp-outputfile_band_r_pI.tif" "temp-outputfile_band_g_pI.tif" "temp-outputfile_band_b_pI.tif" -o temp-outputfile_pI.tif
     fi
     
     #remove temp files
@@ -559,11 +579,12 @@ function main()
     gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" temp-outputfile.tif ${outputRGB}.tif
     returnCode=$?
     [ $returnCode -eq 0 ] || return ${ERR_CONVERT}
-    gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" temp-outputfile_pI.tif ${outputRGB}_pI.tif
+ #   gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" temp-outputfile_pI.tif ${outputRGB}_pI.tif
     returnCode=$?
     [ $returnCode -eq 0 ] || return ${ERR_CONVERT}
     if [ ${mission} = "Sentinel-2"  ]; then
-        gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" temp-outputfile_pII.tif ${outputRGB}_pII.tif
+    		gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" temp-outputfile_pII.tif ${outputRGB}_pII.tif
+ 		gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" temp-outputfile_pI.tif ${outputRGB}_pI.tif
     fi 
 
     #Remove temporary file
@@ -577,17 +598,19 @@ function main()
     gdaladdo -r average ${outputRGB}.tif 2 4 8 16
     returnCode=$?
     [ $returnCode -eq 0 ] || return ${ERR_CONVERT} 
-    gdaladdo -r average ${outputRGB}_pI.tif 2 4 8 16
+#    gdaladdo -r average ${outputRGB}_pI.tif 2 4 8 16
     returnCode=$?
     [ $returnCode -eq 0 ] || return ${ERR_CONVERT}   
     if [ ${mission} = "Sentinel-2"  ]; then
         gdaladdo -r average ${outputRGB}_pII.tif 2 4 8 16
+	gdaladdo -r average ${outputRGB}_pI.tif 2 4 8 16
     fi
     # Create PNG output
     gdal_translate -ot Byte -of PNG ${outputRGB}.tif ${outputRGB}.png
-    gdal_translate -ot Byte -of PNG ${outputRGB}_pI.tif ${outputRGB}_pI.png
+#    gdal_translate -ot Byte -of PNG ${outputRGB}_pI.tif ${outputRGB}_pI.png
     if [ ${mission} = "Sentinel-2"  ]; then
         gdal_translate -ot Byte -of PNG ${outputRGB}_pII.tif ${outputRGB}_pII.png
+	gdal_translate -ot Byte -of PNG ${outputRGB}_pI.tif ${outputRGB}_pI.png
         rm -f ${outputRGB}_pII.png.aux.xml
     fi
     #remove temp xml file produced together with png
@@ -600,8 +623,12 @@ function main()
     description_pI="RGB combination - Min to Max"
     output_properties=$( propertiesFileCratorTIF  "${outputRGB}"_pI.tif "${description_pI}" "${prodList_prop}_pI" "${processingTime}" "${outputRGB}"_pI.properties )
     if [ ${mission} = "Sentinel-2"  ]; then
-        description_pII="RGB combination - Min to Max"
-        output_properties=$( propertiesFileCratorTIF  "${outputRGB}"_pII.tif "${description_pII}" "${prodList_prop}_pII" "${processingTime}" "${outputRGB}"_pII.properties )
+        description_pI="RGB combination - Min to Max"
+	output_properties=$( propertiesFileCratorTIF  "${outputRGB}"_pI.tif "${description_pI}" "${prodList_prop}_pI" "${processingTime}" "${outputRGB}"_pI.properties )
+
+	description_pII="RGB combination - Min to Max"
+        
+	output_properties=$( propertiesFileCratorTIF  "${outputRGB}"_pII.tif "${description_pII}" "${prodList_prop}_pII" "${processingTime}" "${outputRGB}"_pII.properties )
     fi
 
     # report activity in the log
