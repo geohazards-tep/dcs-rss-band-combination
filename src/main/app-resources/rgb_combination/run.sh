@@ -518,14 +518,14 @@ function main()
        #     zMin=$(gdalinfo -mm "${outProdTIF}" | grep Min | sed -ne $((${index}+1))p | tr -d 's/*Computed Min\/Max=//p'| cut -d "," -f 1)
        #     zMax=$(gdalinfo -mm "${outProdTIF}" | grep Min | sed -ne $((${index}+1))p | tr -d 's/*Computed Min\/Max=//p'| cut -d "," -f 2)
        #     python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" $zMin $zMax "${tmpProd_list_pI[$index]}"
-            echo $index $zMin $zMax > "${OUTPUTDIR}"/toto
+#            echo $index $zMin $zMax > "${OUTPUTDIR}"/toto
             ciop-publish -m "${OUTPUTDIR}"/*
             if [ ${mission} = "Sentinel-2"  ]; then
                 python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" 0 0.3 "${tmpProd_list_pII[$index]}"
 		zMin=$(gdalinfo -mm "${outProdTIF}" | grep Min | sed -ne $((${index}+1))p | tr -d 's/*Computed Min\/Max=//p'| cut -d "," -f 1)
 	        zMax=$(gdalinfo -mm "${outProdTIF}" | grep Min | sed -ne $((${index}+1))p | tr -d 's/*Computed Min\/Max=//p'| cut -d "," -f 2)
 	        python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" $zMin $zMax "${tmpProd_list_pI[$index]}"
-	        echo $index $zMin $zMax > "${OUTPUTDIR}"/toto
+#	        echo $index $zMin $zMax > "${OUTPUTDIR}"/toto
             fi    
         fi
         #re-projection
@@ -620,13 +620,13 @@ function main()
     processingTime=$( date )
     description="RGB combination - 2-96 percent of histogram"
     output_properties=$( propertiesFileCratorTIF  "${outputRGB}".tif "${description}" "${prodList_prop}" "${processingTime}" "${outputRGB}".properties )
-    description_pI="RGB combination - Min to Max"
-    output_properties=$( propertiesFileCratorTIF  "${outputRGB}"_pI.tif "${description_pI}" "${prodList_prop}_pI" "${processingTime}" "${outputRGB}"_pI.properties )
+   # description_pI="RGB combination - Min to Max"
+   # output_properties=$( propertiesFileCratorTIF  "${outputRGB}"_pI.tif "${description_pI}" "${prodList_prop}_pI" "${processingTime}" "${outputRGB}"_pI.properties )
     if [ ${mission} = "Sentinel-2"  ]; then
         description_pI="RGB combination - Min to Max"
 	output_properties=$( propertiesFileCratorTIF  "${outputRGB}"_pI.tif "${description_pI}" "${prodList_prop}_pI" "${processingTime}" "${outputRGB}"_pI.properties )
 
-	description_pII="RGB combination - Min to Max"
+	description_pII="RGB combination - Stretched between 0 to 0.3"
         
 	output_properties=$( propertiesFileCratorTIF  "${outputRGB}"_pII.tif "${description_pII}" "${prodList_prop}_pII" "${processingTime}" "${outputRGB}"_pII.properties )
     fi
