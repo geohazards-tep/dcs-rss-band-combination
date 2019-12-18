@@ -519,14 +519,14 @@ function main()
        #     zMin=$(gdalinfo -mm "${outProdTIF}" | grep Min | sed -ne $((${index}+1))p | tr -d 's/*Computed Min\/Max=//p'| cut -d "," -f 1)
        #     zMax=$(gdalinfo -mm "${outProdTIF}" | grep Min | sed -ne $((${index}+1))p | tr -d 's/*Computed Min\/Max=//p'| cut -d "," -f 2)
        #     python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" $zMin $zMax "${tmpProd_list_pI[$index]}"
-            echo $index $zMin $zMax > "${OUTPUTDIR}"/toto
+#            echo $index $zMin $zMax > "${OUTPUTDIR}"/toto
             ciop-publish -m "${OUTPUTDIR}"/*
             if [ ${mission} = "Sentinel-2"  ]; then
                 python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" 0 0.3 "${tmpProd_list_pII[$index]}"
 		zMin=$(gdalinfo -mm "${outProdTIF}" | grep Min | sed -ne $((${index}+1))p | tr -d 's/*Computed Min\/Max=//p'| cut -d "," -f 1)
 	        zMax=$(gdalinfo -mm "${outProdTIF}" | grep Min | sed -ne $((${index}+1))p | tr -d 's/*Computed Min\/Max=//p'| cut -d "," -f 2)
 	        python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" $zMin $zMax "${tmpProd_list_pI[$index]}"
-	        echo $index $zMin $zMax > "${OUTPUTDIR}"/toto
+#	        echo $index $zMin $zMax > "${OUTPUTDIR}"/toto
             fi    
         fi
         #re-projection
@@ -535,8 +535,8 @@ function main()
         returnCode=$?
         [ $returnCode -eq 0 ] || return ${ERR_CONVERT}
         if [ ${mission} = "Sentinel-2"  ]; then
-		gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" "${tmpProd_list_pI[$index]}" "${outRGB_list[$index]}"_pI.tif
-	 	gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" "${tmpProd_list_pI[$index]}" "${outRGB_list[$index]}"_pII.tif  
+		gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" "${tmpProd_list_pI[$index]}" "${outRGB_list[$index]}"_MinMax.tif
+	 	gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" "${tmpProd_list_pI[$index]}" "${outRGB_list[$index]}"_QuickLook.tif  
         fi
 
         #Add overviews
@@ -547,8 +547,8 @@ function main()
         returnCode=$?
         [ $returnCode -eq 0 ] || return ${ERR_CONVERT}
         if [ ${mission} = "Sentinel-2"  ]; then
-        	gdaladdo -r average "${outRGB_list[$index]}"_pII.tif 2 4 8 16
-		gdaladdo -r average "${outRGB_list[$index]}"_pI.tif 2 4 8 16
+        	gdaladdo -r average "${outRGB_list[$index]}"_QuickLook.tif 2 4 8 16
+		gdaladdo -r average "${outRGB_list[$index]}"_MinMax.tif 2 4 8 16
         fi
 
         # Create PNG output
@@ -584,8 +584,8 @@ function main()
     returnCode=$?
     [ $returnCode -eq 0 ] || return ${ERR_CONVERT}
     if [ ${mission} = "Sentinel-2"  ]; then
-    		gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" temp-outputfile_pII.tif ${outputRGB}_pII.tif
- 		gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" temp-outputfile_pI.tif ${outputRGB}_pI.tif
+    		gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" temp-outputfile_pII.tif ${outputRGB}_QuickLook.tif
+ 		gdalwarp -ot Byte -t_srs EPSG:4326 -srcnodata 0 -dstnodata 0 -dstalpha -co "TILED=YES" -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" -co "BIGTIFF=YES" temp-outputfile_pI.tif ${outputRGB}_MinMax.tif
     fi 
 
     #Remove temporary file
@@ -603,15 +603,15 @@ function main()
     returnCode=$?
     [ $returnCode -eq 0 ] || return ${ERR_CONVERT}   
     if [ ${mission} = "Sentinel-2"  ]; then
-        gdaladdo -r average ${outputRGB}_pII.tif 2 4 8 16
-	gdaladdo -r average ${outputRGB}_pI.tif 2 4 8 16
+        gdaladdo -r average ${outputRGB}_QuickLook.tif 2 4 8 16
+	gdaladdo -r average ${outputRGB}_MinMax.tif 2 4 8 16
     fi
     # Create PNG output
     gdal_translate -ot Byte -of PNG ${outputRGB}.tif ${outputRGB}.png
 #    gdal_translate -ot Byte -of PNG ${outputRGB}_pI.tif ${outputRGB}_pI.png
     if [ ${mission} = "Sentinel-2"  ]; then
-        gdal_translate -ot Byte -of PNG ${outputRGB}_pII.tif ${outputRGB}_pII.png
-	gdal_translate -ot Byte -of PNG ${outputRGB}_pI.tif ${outputRGB}_pI.png
+        gdal_translate -ot Byte -of PNG ${outputRGB}_QuickLook.tif ${outputRGB}_QuickLook.png
+	gdal_translate -ot Byte -of PNG ${outputRGB}_MinMax.tif ${outputRGB}_MinMax.png
         rm -f ${outputRGB}_pII.png.aux.xml
     fi
     #remove temp xml file produced together with png
@@ -621,15 +621,15 @@ function main()
     processingTime=$( date )
     description="RGB combination - 2-96 percent of histogram"
     output_properties=$( propertiesFileCratorTIF  "${outputRGB}".tif "${description}" "${prodList_prop}" "${processingTime}" "${outputRGB}".properties )
-    description_pI="RGB combination - Min to Max"
-    output_properties=$( propertiesFileCratorTIF  "${outputRGB}"_pI.tif "${description_pI}" "${prodList_prop}_pI" "${processingTime}" "${outputRGB}"_pI.properties )
+   # description_pI="RGB combination - Min to Max"
+   # output_properties=$( propertiesFileCratorTIF  "${outputRGB}"_pI.tif "${description_pI}" "${prodList_prop}_pI" "${processingTime}" "${outputRGB}"_pI.properties )
     if [ ${mission} = "Sentinel-2"  ]; then
         description_pI="RGB combination - Min to Max"
-	output_properties=$( propertiesFileCratorTIF  "${outputRGB}"_pI.tif "${description_pI}" "${prodList_prop}_pI" "${processingTime}" "${outputRGB}"_pI.properties )
+	output_properties=$( propertiesFileCratorTIF  "${outputRGB}"_MinMax.tif "${description_pI}" "${prodList_prop}_MinMax" "${processingTime}" "${outputRGB}"_MinMax.properties )
 
-	description_pII="RGB combination - Min to Max"
+	description_pII="RGB combination - Stretched between 0 to 0.3"
         
-	output_properties=$( propertiesFileCratorTIF  "${outputRGB}"_pII.tif "${description_pII}" "${prodList_prop}_pII" "${processingTime}" "${outputRGB}"_pII.properties )
+	output_properties=$( propertiesFileCratorTIF  "${outputRGB}"_QuickLook.tif "${description_pII}" "${prodList_prop}_QuickLook" "${processingTime}" "${outputRGB}"_QuickLook.properties )
     fi
 
     # report activity in the log
