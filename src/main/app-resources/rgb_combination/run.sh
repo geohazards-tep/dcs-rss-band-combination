@@ -354,7 +354,9 @@ function main()
         # NOTE: for each loop step, the TMPDIR is cleansd, so the unique product contained is the current one
         inputProp=$( ls *.properties)
         # move to input dir
+       # cp *.properties $OUTPUTDIR/
         mv *.properties $INPUTDIR
+        
         # full path of input properties product after move
         inputProp=${INPUTDIR}/${inputProp}
         cd - &> /dev/null
@@ -363,7 +365,7 @@ function main()
         #save product index
         [[ "$(basename $inputDIM | grep red)" != "" ]] && redIndex=$index
         [[ "$(basename $inputDIM | grep green)" != "" ]] && greenIndex=$index
-	    [[ "$(basename $inputDIM | grep blue)" != "" ]] && blueIndex=$index
+	[[ "$(basename $inputDIM | grep blue)" != "" ]] && blueIndex=$index
         # save master index
         currentIsMaster=$(cat ${inputProp} | grep isMaster | sed -n -e 's|^.*isMaster=\(.*\)|\1|p')
         [[ "${currentIsMaster}" == "1" ]] && masterIndex=$index
@@ -408,6 +410,9 @@ function main()
     declare -a missionShortId_list
     # band index list
     declare -a bandShortIndex_list	
+    ciop-log "INFO" "inputfilesprop should be shown now"
+    cat ${inputfilesProp}
+    cat ${inputfilesProp_list}
     # fill product properties
     for index in `seq 0 $inputfilesNum`;
     do
@@ -436,10 +441,17 @@ function main()
 		bandId=${blueBandIndex}
                 ;;
         esac
+
         # report activity in the log
 	ciop-log "DEBUG" "Prodname = ${prodName}"
         ciop-log "DEBUG" "Mission ID: ${missionId}"
-        mission_list+=("${missionId}")
+	if [[ ${missionId} = "Sentinel-3" ]] ; then
+		prodTypeName=$( echo ${prodName:9:3} )
+		ciop-log "DEBUG" "prodTypeName = ${prodTypeName}"
+	else
+		ciop-log "DEBUG" "prodtype not defined"
+	fi
+	mission_list+=("${missionId}")
 	missionShortId=$(getMissionShortId "${missionId}")
         # report activity in the log
         ciop-log "DEBUG" "Short mission ID: ${missionShortId}"
@@ -490,28 +502,45 @@ function main()
     declare -a tmpProd_list_pI=("temp-outputfile_band_r_pI.tif" "temp-outputfile_band_g_pI.tif" "temp-outputfile_band_b_pI.tif")
     declare -a tmpProd_list_pII=("temp-outputfile_band_r_pII.tif" "temp-outputfile_band_g_pII.tif" "temp-outputfile_band_b_pII.tif")
     outputRGB=${OUTPUTDIR}/RGB_${missionShortId_list[0]}_${bandShortIndex_list[0]}_${missionShortId_list[1]}_${bandShortIndex_list[1]}_${missionShortId_list[2]}_${bandShortIndex_list[2]}
+    ciop-log "INFO" "temp product list is: ${tmpProd_list}"
     # loop on individual bands for radiometric enhancement and output production
     for index in `seq 0 $inputfilesNum`;
     do
         mission="${mission_list[$index]}"
 	bandnumber="${bandShortIndex_list[$index]}"
         # tailored enhancement for some SAR missions
-	if [ ${mission} = "Radarsat-2" ]; then
-               #linear strecth between -15 dB and +5 dB
-               python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" -15 5 "${tmpProd_list[$index]}"
-        elif [ ${mission} = "Sentinel-1" ]; then
-               #Retrieve polarization type
-               polType=$( get_polarization_s1 "${prodName}" )
-               if [ ${polType} = "DH" ] || [ ${polType} = "DV" ] && [ ${bandnumber} = "2" ]; then
-                       python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" -25 5 "${tmpProd_list[$index]}"
-                       ciop-log "DEBUG" "Chosen for -25 5 scaling because: Pol: ${polType},Band: ${bandnumber} and Mission: ${mission}"
-               else
-                       python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" -15 5 "${tmpProd_list[$index]}"
-                       ciop-log "DEBUG" "Chosen for -15 5 scaling because: Pol: ${polType},Band: ${bandnumber} and Mission: ${mission}"
-               fi
-           # generic enhancement for all the other missions
- 
-        # generic enhancement for all the other missions
+        if [ ${mission} = "Radarsat-2" ]; then
+	        #linear strecth between -15 dB and +5 dB
+	        python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" -15 5 "${tmpProd_list[$index]}"	
+	elif [ ${mission} = "Sentinel-1" ]; then
+		#Retrieve polarization type
+		polType=$( get_polarization_s1 "${prodName}" )
+		if [ ${polType} = "DH" ] || [ ${polType} = "DV" ] && [ ${bandnumber} = "2" ]; then
+			python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" -25 5 "${tmpProd_list[$index]}"
+			ciop-log "DEBUG" "Chosen for -25 5 scaling because: Pol: ${polType},Band: ${bandnumber} and Mission: ${mission}"
+		else
+			python $_CIOP_APPLICATION_PATH/rgb_combination/linear_stretch.py "${outProdTIF}" "${stackOrderRGB[$index]}" -15 5 "${tmpProd_list[$index]}"
+			ciop-log "DEBUG" "Chosen for -15 5 scaling because: Pol: ${polType},Band: ${bandnumber} and Mission: ${mission}"
+		fi
+	elif [[ ${mission} = "Sentinel-3" ]] && [[ ${prodTypeName} = "RBT" ]]; then
+	
+		mkdir ${TMPDIR}/stack_pconvert
+		outputfolder_pconvert=${TMPDIR}/stack_pconvert 
+		pconvert -b "${stackOrderRGB[$index]}" -f tif "${outProdTIF}" -b 1,2,3 -o "${outputfolder_pconvert}" -d
+		ciop-log "INFO" "outputfolder_pconvert = ${outputfolder_pconvert} and the s3 product type is ${prodTypeName} with command  pconvert -b 1,2,3 -o "${outputfolder_pconvert}" -d"
+	    # generic enhancement for all the other missions
+	        Result_Pconvert=$(ls ${outputfolder_pconvert} | egrep '^.*.tif$')
+		Result_Pconvert_filepath=${outputfolder_pconvert}/${Result_Pconvert}
+		#temp_band=${tmpProd_list[$index]}
+	#	cp "${Result_Pconvert_filepath}" "${OUTPUTDIR}/"
+		cp "${Result_Pconvert_filepath}" temp-outputfile.tif
+		ciop-log "INFO" "cp "${Result_Pconvert_filepath}" "${OUTPUTDIR}""	
+		gdal_translate -b ${stackOrderRGB[$index]} -co "TILED=YES" "${Result_Pconvert_filepath}" "${tmpProd_list[$index]}"
+		ciop-log "INFO" "gdal_translate -b ${stackOrderRGB[$index]} -co "TILED=YES" "${Result_Pconvert_filepath}" "${tmpProd_list[$index]}""
+#		gdal_translate -b ${stackOrderRGB[$index]} -co "TILED=YES" "${Result_Pconvert_filepath}" "${tmpProd_list[$index]}
+		
+		
+
         else
             # histogram skip (percentiles from 2 to 96)
             python $_CIOP_APPLICATION_PATH/rgb_combination/hist_skip_no_zero.py "${outProdTIF}" "${stackOrderRGB[$index]}" 2 96 "${tmpProd_list[$index]}"
@@ -560,19 +589,18 @@ function main()
         description="Individual band product"
         output_properties=$( propertiesFileCratorTIF  "${outRGB_list[$index]}".tif "${description}" "${inputfilesProp_list[$index]}" "${processingTime}" "${outRGB_list[$index]}".properties )         
     done
-    # merge radiometric enhanced bands
     gdal_merge.py -separate -n 0 -a_nodata 0 -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" "temp-outputfile_band_r.tif" "temp-outputfile_band_g.tif" "temp-outputfile_band_b.tif" -o temp-outputfile.tif
-#    gdal_merge.py -separate -n 0 -a_nodata 0 -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" "temp-outputfile_band_r_pI.tif" "temp-outputfile_band_g_pI.tif" "temp-outputfile_band_b_pI.tif" -o temp-outputfile_pI.tif
+
     if [ ${mission} = "Sentinel-2"  ]; then
         gdal_merge.py -separate -n 0 -a_nodata 0 -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" "temp-outputfile_band_r_pII.tif" "temp-outputfile_band_g_pII.tif" "temp-outputfile_band_b_pII.tif" -o temp-outputfile_pII.tif
 	gdal_merge.py -separate -n 0 -a_nodata 0 -co "PHOTOMETRIC=RGB" -co "ALPHA=YES" "temp-outputfile_band_r_pI.tif" "temp-outputfile_band_g_pI.tif" "temp-outputfile_band_b_pI.tif" -o temp-outputfile_pI.tif
     fi
+    #remove temp files    
     
-    #remove temp files
     rm temp-outputfile_band_r.tif temp-outputfile_band_g.tif temp-outputfile_band_b.tif
-    rm temp-outputfile_band_r_pI.tif temp-outputfile_band_g_pI.tif temp-outputfile_band_b_pI.tif
     if [ ${mission} = "Sentinel-2"  ]; then
         rm temp-outputfile_band_r_pII.tif temp-outputfile_band_g_pII.tif temp-outputfile_band_b_pII.tif    
+	rm temp-outputfile_band_r_pI.tif temp-outputfile_band_g_pI.tif temp-outputfile_band_b_pI.tif
     fi    
 
     #re-projection
@@ -589,9 +617,9 @@ function main()
 
     #Remove temporary file
     rm -f temp-outputfile.tif
-    rm -f temp-outputfile_pI.tif
     if [ ${mission} = "Sentinel-2"  ]; then
         rm -f temp-outputfile_pII.tif
+	rm -f temp-outputfile_pI.tif
     fi
 
     #Add overviews
@@ -599,11 +627,13 @@ function main()
     returnCode=$?
     [ $returnCode -eq 0 ] || return ${ERR_CONVERT} 
 #    gdaladdo -r average ${outputRGB}_pI.tif 2 4 8 16
-    returnCode=$?
+#    returnCode=$?
     [ $returnCode -eq 0 ] || return ${ERR_CONVERT}   
     if [ ${mission} = "Sentinel-2"  ]; then
         gdaladdo -r average ${outputRGB}_QuickLook.tif 2 4 8 16
 	gdaladdo -r average ${outputRGB}_MinMax.tif 2 4 8 16
+        returnCode=$?
+        [ $returnCode -eq 0 ] || return ${ERR_CONVERT}
     fi
     # Create PNG output
     gdal_translate -ot Byte -of PNG ${outputRGB}.tif ${outputRGB}.png
